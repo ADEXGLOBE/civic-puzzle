@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Civic Puzzle Admin</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 24px;
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-gap: 16px;
+      margin-top: 16px;
+    }
+    .card {
+      background: #111827;
+      border-radius: 12px;
+      padding: 16px;
+      border: 1px solid #1f2937;
+    }
+    label {
+      font-size: 13px;
+      display: block;
+      margin-bottom: 4px;
+      color: #9ca3af;
+    }
+    input, textarea {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #374151;
+      background: #020617;
+      color: #e5e7eb;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    textarea { min-height: 60px; }
+    button {
+      border-radius: 999px;
+      border: none;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #10b981;
+      color: #020617;
+    }
+    button.secondary {
+      background: #1f2937;
+      color: #e5e7eb;
+      border: 1px solid #374151;
+    }
+    .row { display: flex; gap: 8px; align-items: center; }
+    small { color: #6b7280; font-size: 11px; }
+    #status {
+      margin-top: 12px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    const pwd = prompt('Enter admin password:');
+    if (pwd !== 'puzzleMaster123') {
+      document.body.innerHTML = '<h1>Access denied</h1>';
+      throw new Error('Unauthorized');
+    }
+  </script>
+
+  <h1>Civic Puzzle Admin</h1>
+  <p>
+    Feed <strong>Headlines</strong>, <strong>Facts Mode</strong>, and
+    <strong>Crosswords</strong> from one screen. Leave <em>Hint</em> empty to let
+    the server auto-generate one.
+  </p>
+
+  <div class="grid">
+    <!-- Headlines -->
+    <div class="card">
+      <h2>📰 Add Headline</h2>
+      <label>Headline text</label>
+      <textarea id="headlineText" placeholder="Eg. Raise your glasses up! for Tania"></textarea>
+
+      <label>Full story URL</label>
+      <input id="headlineUrl" type="text" placeholder="https://..." />
+
+      <label>Hint (optional)</label>
+      <input id="headlineHint" type="text" placeholder="Starts with... (leave blank to auto-generate)" />
+
+      <button onclick="submitHeadline()">Save Headline</button>
+      <small>Stored under current week; older weeks auto-trimmed.</small>
+    </div>
+
+    <!-- Facts -->
+    <div class="card">
+      <h2>⭐ Add Fact (Reporters / Public Figures)</h2>
+      <label>Fact text</label>
+      <textarea id="factText" placeholder="Eg. Cassie Zervos is the State Political Reporter for 7NEWS Melbourne."></textarea>
+
+      <label>Read more URL</label>
+      <input id="factUrl" type="text" placeholder="https://..." />
+
+      <label>Hint (optional)</label>
+      <input id="factHint" type="text" placeholder="Eg. 7NEWS Melbourne reporter..." />
+
+      <button onclick="submitFact()">Save Fact</button>
+      <small>Used in Facts Mode inside the app.</small>
+    </div>
+
+    <!-- Crosswords -->
+    <div class="card">
+      <h2>🧩 Add Crossword Meta</h2>
+      <label>Crossword title</label>
+      <input id="cwTitle" type="text" placeholder="Eg. Weekend Sports Crossword" />
+
+      <label>Main headline / theme</label>
+      <textarea id="cwHeadline" placeholder="Eg. Tuchel joins new club, Bamako hosts finals..."></textarea>
+
+      <label>Read more URL</label>
+      <input id="cwUrl" type="text" placeholder="https://..." />
+
+      <label>Hint (optional)</label>
+      <input id="cwHint" type="text" placeholder="Eg. Mix of football & African cities" />
+
+      <button onclick="submitCrossword()">Save Crossword</button>
+      <small>
+        App will fetch this list for the Crosswords tab. Grid layout is handled in the mobile UI.
+      </small>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <script>
+    const BASE = 'http://localhost:5000';
+    const AUTH = 'Bearer puzzleMaster123';
+
+    async function postJSON(path, body) {
+      const res = await fetch(BASE + path, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': AUTH,
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || 'Request failed');
+      return text;
+    }
+
+    function setStatus(msg, ok = true) {
+      const el = document.getElementById('status');
+      el.style.color = ok ? '#6ee7b7' : '#fca5a5';
+      el.textContent = msg;
+    }
+
+    async function submitHeadline() {
+      try {
+        const headline = document.getElementById('headlineText').value.trim();
+        const url = document.getElementById('headlineUrl').value.trim();
+        const hint = document.getElementById('headlineHint').value.trim();
+        if (!headline) return setStatus('Headline cannot be empty', false);
+        const msg = await postJSON('/api/headlines', {
+          headline,
+          readMoreUrl: url,
+          hint,
+        });
+        setStatus('✅ ' + msg);
+        document.getElementById('headlineText').value = '';
+        document.getElementById('headlineUrl').value = '';
+        document.getElementById('headlineHint').value = '';
+      } catch (e) {
+        setStatus('❌ ' + e.message, false);
+      }
+    }
+
+    async function submitFact() {
+      try {
+        const text = document.getElementById('factText').value.trim();
+        const url = document.getElementById('factUrl').value.trim();
+        const hint = document.getElementById('factHint').value.trim();
+        if (!text) return setStatus('Fact text cannot be empty', false);
+        const msg = await postJSON('/api/facts', {
+          text,
+          readMoreUrl: url,
+          hint,
+        });
+        setStatus('✅ ' + msg);
+        document.getElementById('factText').value = '';
+        document.getElementById('factUrl').value = '';
+        document.getElementById('factHint').value = '';
+      } catch (e) {
+        setStatus('❌ ' + e.message, false);
+      }
+    }
+
+    async function submitCrossword() {
+      try {
+        const title = document.getElementById('cwTitle').value.trim();
+        const headline = document.getElementById('cwHeadline').value.trim();
+        const url = document.getElementById('cwUrl').value.trim();
+        const hint = document.getElementById('cwHint').value.trim();
+        if (!title || !headline) {
+          return setStatus('Title and headline are required for a crossword.', false);
+        }
+        const msg = await postJSON('/api/crosswords', {
+          title,
+          headline,
+          readMoreUrl: url,
+          hint,
+        });
+        setStatus('✅ ' + msg);
+        document.getElementById('cwTitle').value = '';
+        document.getElementById('cwHeadline').value = '';
+        document.getElementById('cwUrl').value = '';
+        document.getElementById('cwHint').value = '';
+      } catch (e) {
+        setStatus('❌ ' + e.message, false);
+      }
+    }
+  </script>
+</body>
+</html>

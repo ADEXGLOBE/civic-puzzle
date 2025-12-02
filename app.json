@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Civic Puzzle",
+    "slug": "civic-puzzle",
+    "scheme": "civpuzzle",
+    "version": "1.0.0",
+    "orientation": "portrait",
+
+    "icon": "./assets/adaptive-icon.png",            // use PNG & square
+    "splash": {
+      "image": "./assets/splash-icon.png",          // PNG
+      "resizeMode": "contain",
+      "backgroundColor": "#F9FAFB"
+    },
+
+    "assetBundlePatterns": ["**/*"],
+
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.laxa.civicpuzzle"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",  // PNG & square
+        "backgroundColor": "#F9FAFB"
+      },
+      "package": "com.laxa.civicpuzzle"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+
+    "plugins": [
+      "expo-sqlite",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "android_app_id": "ca-app-pub-3940256099942544~3347511713",
+          "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ]
+    ],
+
+    "extra": {
+      "adMobEnabled": true
+    }
+  }
+}

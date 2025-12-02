@@ -1,0 +1,16 @@
+[
+  {
+    "id": "sponsor_ballarat_museum",
+    "title": "Ballarat Museum – Local History",
+    "image": "https://example.com/ads/ballarat-museum.png",
+    "clickUrl": "https://ballaratmuseum.example.com",
+    "weight": 1
+  },
+  {
+    "id": "sponsor_cafe_lane",
+    "title": "Cafe on the Lane – 2 for 1 Coffee",
+    "image": "https://example.com/ads/cafe-on-the-lane.png",
+    "clickUrl": "https://cafeonthelane.example.com",
+    "weight": 1
+  }
+]

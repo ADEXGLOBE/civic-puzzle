@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Civic Puzzle — Facts Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0B1018;
+      --card:#111827;
+      --text:#E5E7EB;
+      --muted:#9CA3AF;
+      --border:#1F2937;
+      --primary:#7C3AED;
+      --accent:#22C55E;
+      --error:#EF4444;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+    .wrap{max-width:1000px;margin:0 auto;padding:24px}
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:20px;
+      box-shadow:0 10px 30px rgba(0,0,0,0.25);
+    }
+    h1{font-size:24px;margin:0 0 12px}
+    h2{font-size:18px;margin:16px 0 8px;color:var(--muted);font-weight:700}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .field{flex:1 1 260px;display:flex;flex-direction:column;gap:6px}
+    label{font-size:13px;color:var(--muted)}
+    input,textarea,button{
+      font-size:16px;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:#0f172a;
+      color:var(--text);
+      outline:none;
+    }
+    textarea{min-height:96px; resize:vertical}
+    input:focus, textarea:focus{border-color:#334155}
+    .btn{
+      background:var(--primary);
+      border-color:var(--primary);
+      cursor:pointer;
+      transition:transform .05s ease;
+    }
+    .btn:active{transform:translateY(1px)}
+    .btn.secondary{background:transparent;border-color:#334155}
+    .note{font-size:13px;color:var(--muted)}
+    .status{margin-top:10px;font-size:14px}
+    .ok{color:var(--accent)}
+    .bad{color:var(--error)}
+    table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:8px;
+      font-size:14px;
+    }
+    th, td{
+      text-align:left;
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      vertical-align:top;
+    }
+    .pill{
+      display:inline-block;
+      padding:4px 10px;
+      border-radius:999px;
+      background:#1f2937;
+      color:#cbd5e1;
+      font-size:12px;
+      border:1px solid #334155;
+    }
+    .topbar{
+      display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;
+    }
+    .inline{display:flex; gap:8px; align-items:center}
+    .brand{font-weight:800;letter-spacing:.3px}
+    a{color:#93c5fd; text-decoration:none}
+    a:hover{text-decoration:underline}
+    .img{
+      width:80px;height:50px;object-fit:cover;border-radius:8px;border:1px solid var(--border)
+    }
+    .nowrap{white-space:nowrap}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="inline">
+        <span class="pill">Admin</span>
+        <span class="brand">Civic Puzzle — Facts Mode</span>
+      </div>
+      <div class="inline">
+        <label for="baseUrl" style="color:#9CA3AF;font-size:13px">API Base URL</label>
+        <input id="baseUrl" style="width:280px" placeholder="http://localhost:5000" />
+        <button id="saveBaseUrl" class="btn secondary">Use</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h1>Add Fact</h1>
+      <p class="note">Add a short fact for a reporter/celebrity/public figure. Keep it punchy and verifiable.</p>
+      <div class="row" style="margin-top:8px">
+        <div class="field" style="flex:1 1 100%">
+          <label for="factText">Fact Text *</label>
+          <textarea id="factText" placeholder="e.g. Cassie Zervos is the Melbourne Bureau Chief at 7NEWS Australia."></textarea>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="field">
+          <label for="readMoreUrl">Read Full Story URL (optional)</label>
+          <input id="readMoreUrl" placeholder="https://example.com/profile" />
+        </div>
+        <div class="field">
+          <label for="category">Category (optional)</label>
+          <input id="category" placeholder="e.g. reporters, celebrities" />
+        </div>
+        <div class="field">
+          <label for="imageUrl">Image URL (optional)</label>
+          <input id="imageUrl" placeholder="https://example.com/photo.jpg" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px; align-items:flex-end">
+        <div class="field" style="flex:0 0 auto">
+          <button id="submitBtn" class="btn">Submit Fact</button>
+        </div>
+        <div class="field" style="flex:1 1 auto">
+          <div id="status" class="status"></div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:8px">
+        Password protected (client-side). Your server will still verify the header <code>Authorization: Bearer puzzleMaster123</code>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Current Facts — Live Preview</h2>
+      <div class="row" style="margin:8px 0 12px">
+        <button id="refreshBtn" class="btn secondary">Refresh List</button>
+      </div>
+      <div id="listWrap">
+        <table id="table" style="display:none">
+          <thead>
+            <tr>
+              <th class="nowrap">#</th>
+              <th>Text</th>
+              <th>Image</th>
+              <th>Category</th>
+              <th>Read More</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <p id="emptyMsg" class="note">No facts added yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Client-side password gate ---
+    let token = localStorage.getItem('civic_admin_token');
+    if (!token) {
+      const pw = prompt("Enter admin password:");
+      if (pw !== "puzzleMaster123") {
+        document.body.innerHTML = "<div class='wrap'><div class='card'><h1>Access Denied</h1><p class='note'>Wrong password.</p></div></div>";
+        throw new Error("Unauthorized");
+      }
+      token = "puzzleMaster123";
+      localStorage.setItem('civic_admin_token', token);
+    }
+
+    // Base URL handling (default to localhost)
+    const baseUrlInput = document.getElementById('baseUrl');
+    const savedBase = localStorage.getItem('civic_api_base') || 'http://localhost:5000';
+    baseUrlInput.value = savedBase;
+    document.getElementById('saveBaseUrl').addEventListener('click', () => {
+      localStorage.setItem('civic_api_base', baseUrlInput.value.trim() || 'http://localhost:5000');
+      flashStatus("API Base URL set to " + (baseUrlInput.value.trim() || 'http://localhost:5000'), true);
+      loadList();
+    });
+
+    // Elements
+    const factText = document.getElementById('factText');
+    const readMoreUrl = document.getElementById('readMoreUrl');
+    const category = document.getElementById('category');
+    const imageUrl = document.getElementById('imageUrl');
+    const statusEl = document.getElementById('status');
+    const submitBtn = document.getElementById('submitBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const tableEl = document.getElementById('table');
+    const tbodyEl = document.getElementById('tbody');
+    const emptyMsg = document.getElementById('emptyMsg');
+
+    function apiBase(){
+      return (localStorage.getItem('civic_api_base') || 'http://localhost:5000').replace(/\/+$/,'');
+    }
+
+    function flashStatus(msg, ok){
+      statusEl.textContent = msg;
+      statusEl.className = 'status ' + (ok ? 'ok' : 'bad');
+    }
+
+    async function addFact(){
+      const text = (factText.value || '').trim();
+      const url = (readMoreUrl.value || '').trim();
+      const cat = (category.value || '').trim();
+      const img = (imageUrl.value || '').trim();
+
+      if (!text) {
+        flashStatus("Fact text is required.", false);
+        return;
+      }
+      try {
+        const res = await fetch(apiBase() + '/api/facts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ text, readMoreUrl: url, category: cat, imageUrl: img })
+        });
+        const msg = await res.text();
+        if (!res.ok) {
+          flashStatus('Error: ' + msg, false);
+        } else {
+          flashStatus('✅ ' + msg, true);
+          factText.value = '';
+          readMoreUrl.value = '';
+          category.value = '';
+          imageUrl.value = '';
+          await loadList();
+        }
+      } catch (e) {
+        flashStatus('⚠️ Failed to connect to server.', false);
+        console.error(e);
+      }
+    }
+
+    async function loadList(){
+      try{
+        const res = await fetch(apiBase() + '/api/facts');
+        const data = await res.json();
+        renderTable(Array.isArray(data) ? data : []);
+      }catch(e){
+        console.error(e);
+        renderTable([]);
+      }
+    }
+
+    function renderTable(rows){
+      tbodyEl.innerHTML = '';
+      if (!rows.length){
+        tableEl.style.display = 'none';
+        emptyMsg.style.display = 'block';
+        return;
+      }
+      tableEl.style.display = 'table';
+      emptyMsg.style.display = 'none';
+      rows.forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        const tdIdx = document.createElement('td'); tdIdx.textContent = String(idx+1);
+
+        const tdText = document.createElement('td'); tdText.textContent = row.answer || row.text || '';
+
+        const tdImg = document.createElement('td');
+        if (row.imageUrl){
+          const img = document.createElement('img');
+          img.src = row.imageUrl; img.className='img'; img.alt='thumb';
+          tdImg.appendChild(img);
+        } else {
+          tdImg.innerHTML = '<span class="note">—</span>';
+        }
+
+        const tdCat = document.createElement('td'); tdCat.textContent = row.category || '—';
+
+        const tdLink = document.createElement('td');
+        if (row.readMoreUrl){
+          const a = document.createElement('a');
+          a.href = row.readMoreUrl; a.target = '_blank';
+          a.textContent = 'Open';
+          tdLink.appendChild(a);
+        } else {
+          tdLink.innerHTML = '<span class="note">—</span>';
+        }
+
+        tr.appendChild(tdIdx);
+        tr.appendChild(tdText);
+        tr.appendChild(tdImg);
+        tr.appendChild(tdCat);
+        tr.appendChild(tdLink);
+        tbodyEl.appendChild(tr);
+      });
+    }
+
+    submitBtn.addEventListener('click', addFact);
+    refreshBtn.addEventListener('click', loadList);
+
+    // initial load
+    loadList();
+  </script>
+</body>
+</html>
