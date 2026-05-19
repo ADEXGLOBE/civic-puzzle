@@ -2,47 +2,39 @@
   "expo": {
     "name": "Civic Puzzle",
     "slug": "civic-puzzle",
-    "scheme": "civpuzzle",
     "version": "1.0.0",
     "orientation": "portrait",
-
-    "icon": "./assets/adaptive-icon.png",            // use PNG & square
+    "icon": "./assets/icon.jpg",
+    "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash-icon.png",          // PNG
+      "image": "./assets/splash.jpg",
       "resizeMode": "contain",
-      "backgroundColor": "#F9FAFB"
+      "backgroundColor": "#020617"
     },
-
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
     "assetBundlePatterns": ["**/*"],
-
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.laxa.civicpuzzle"
+      "bundleIdentifier": "com.laxatechnology.civicpuzzle",
+      "infoPlist": {
+        "NSUserTrackingUsageDescription": "We use identifiers to deliver relevant ads and measure ad performance."
+      }
     },
     "android": {
+      "package": "com.laxatechnology.civicpuzzle",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",  // PNG & square
-        "backgroundColor": "#F9FAFB"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#020617"
       },
-      "package": "com.laxa.civicpuzzle"
+      "permissions": []
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-
-    "plugins": [
-      "expo-sqlite",
-      [
-        "react-native-google-mobile-ads",
-        {
-          "android_app_id": "ca-app-pub-3940256099942544~3347511713",
-          "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
-        }
-      ]
-    ],
-
     "extra": {
-      "adMobEnabled": true
+      "privacyPolicyUrl": "https://YOUR_DOMAIN/privacy",
+      "eas": {
+        "projectId": "e9207585-6e7f-4663-8386-a6c94be078d9"
+      }
     }
   }
 }

@@ -1,5 +1,4 @@
-// screens/LevelSelector.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -7,47 +6,58 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, spacing, radius } from '../theme';
-import AdBanner from '../components/AdBanner';
-
-// 🔧 Replace with your IPv4 (NO spaces)
-const BASE_URL = 'http://172.18.57.192:5000';
+  Alert,
+  SafeAreaView,
+} from "react-native";
+import { API_BASE_URL } from "../config";
+import { loadSettings } from "./SettingsScreen";
+import AdRectangle from "../components/AdRectangle";
 
 export default function LevelSelector({ navigation }) {
-  const [mode, setMode] = useState('news'); // 'news' | 'facts' | 'crossword'
+  const [mode, setMode] = useState("news");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState('');
+  const [city, setCity] = useState("Ballarat");
+  const [puzzleFeedUrl, setPuzzleFeedUrl] = useState("");
 
-  const load = async (whichMode) => {
+  const modes = [
+    { key: "news", label: "News Puzzle" },
+    { key: "facts", label: "Quick Facts" },
+    { key: "crossword", label: "Crossword" },
+  ];
+
+  const fetchData = async (whichMode) => {
     setLoading(true);
-    setErr('');
 
     try {
-      if (whichMode === 'crossword') {
-        const res = await fetch(`${BASE_URL}/api/crosswords`);
-        const data = await res.json();
-        setItems(Array.isArray(data) && data.length > 0
-          ? data
-          : [
-              {
-                id: 'cw-placeholder',
-                title: "Today’s Crossword",
-                headline: 'Sample grid based on local headlines',
-                readMoreUrl: '',
-              },
-            ]);
-      } else {
-        const endpoint = whichMode === 'facts' ? 'facts' : 'puzzles';
-        const res = await fetch(`${BASE_URL}/api/${endpoint}`);
+      const s = await loadSettings();
+      setCity(s.city || "Ballarat");
+      setPuzzleFeedUrl(s.puzzleFeedUrl || "");
+
+      if (whichMode === "crossword") {
+        const qs = new URLSearchParams();
+      if (s.puzzleFeedUrl) qs.set("sourceUrl", s.puzzleFeedUrl);
+
+      const res = await fetch(`${API_BASE_URL}/api/crosswords?${qs.toString()}`);
         const data = await res.json();
         setItems(Array.isArray(data) ? data : []);
+        return;
       }
+
+      const endpoint = whichMode === "facts" ? "facts" : "puzzles";
+
+      const qs = new URLSearchParams();
+      qs.set("city", s.city || "Ballarat");
+
+      if (whichMode === "news" && s.puzzleFeedUrl) {
+        qs.set("sourceUrl", s.puzzleFeedUrl);
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/${endpoint}?${qs.toString()}`);
+      const data = await res.json();
+      setItems(Array.isArray(data) ? data : []);
     } catch (e) {
-      console.log('Fetch error:', e);
-      setErr('Failed to fetch data from server.');
+      Alert.alert("Error", "Could not load puzzles. Check API URL + server.");
       setItems([]);
     } finally {
       setLoading(false);
@@ -55,143 +65,137 @@ export default function LevelSelector({ navigation }) {
   };
 
   useEffect(() => {
-    load(mode);
+    fetchData(mode);
   }, [mode]);
 
-  const onPressItem = (item, index) => {
-    if (mode === 'crossword') {
-      navigation.navigate('CrosswordScreen', {
-        crosswordMeta: item,
-        index,
-      });
+  const openChallenge = (item) => {
+    if (mode === "crossword") {
+      navigation.navigate("CrosswordScreen", { crosswordData: item });
     } else {
-      navigation.navigate('GameScreen', { puzzleData: item });
+      navigation.navigate("GameScreen", {
+        puzzleData: item,
+        mode,
+        city,
+      });
     }
   };
 
-  const renderItem = ({ item, index }) => {
-    const isCrossword = mode === 'crossword';
+  const getCardTitle = (index) => {
+    if (mode === "news") return `Headline Challenge #${index + 1}`;
+    if (mode === "facts") return `Quick Fact Challenge #${index + 1}`;
+    return `Crossword Challenge #${index + 1}`;
+  };
 
-    const title = isCrossword
-      ? item.title || "Today’s Crossword"
-      : mode === 'news'
-      ? `Headline ${index + 1}`
-      : `Fact ${index + 1}`;
+  const getCardDescription = () => {
+    if (mode === "news") {
+      return "Reveal what you should know today. Solve each word to unlock the headline.";
+    }
 
-    const sub = isCrossword
-      ? item.headline || 'Grid-style puzzle built from headlines.'
-      : 'Tap to play and reveal the full story.';
+    if (mode === "facts") {
+      return "Test your knowledge with a quick fact puzzle.";
+    }
 
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => onPressItem(item, index)}
-      >
-        <Text style={styles.cardTitle}>{title}</Text>
-        <Text style={styles.cardSubtitle}>{sub}</Text>
-      </TouchableOpacity>
-    );
+    return "Solve the crossword challenge.";
+  };
+
+  const getCardBadge = () => {
+    if (mode === "news") return "🔥 Daily Civic";
+    if (mode === "facts") return "💡 Quick Facts";
+    return "🧩 Crossword";
+  };
+
+  const getButtonText = () => {
+    if (mode === "news") return "Reveal Headline";
+    if (mode === "facts") return "Start Fact Puzzle";
+    return "Start Crossword";
   };
 
   return (
-    <SafeAreaView
-      style={styles.safe}
-      edges={['top', 'left', 'right', 'bottom']}
-    >
-      <View style={styles.screen}>
-        {/* Toggle row */}
-        <View style={styles.toggleRow}>
-          <TouchableOpacity
-            style={[styles.toggleBtn, mode === 'news' && styles.toggleActive]}
-            onPress={() => setMode('news')}
-          >
-            <Text
-              style={[
-                styles.toggleText,
-                mode === 'news' && styles.toggleTextActive,
-              ]}
-            >
-              Headlines
-            </Text>
-          </TouchableOpacity>
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Text style={styles.backText}>‹</Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.toggleBtn, mode === 'facts' && styles.toggleActive]}
-            onPress={() => setMode('facts')}
-          >
-            <Text
-              style={[
-                styles.toggleText,
-                mode === 'facts' && styles.toggleTextActive,
-              ]}
-            >
-              Facts Mode
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.toggleBtn,
-              mode === 'crossword' && styles.toggleActive,
-            ]}
-            onPress={() => setMode('crossword')}
-          >
-            <Text
-              style={[
-                styles.toggleText,
-                mode === 'crossword' && styles.toggleTextActive,
-              ]}
-            >
-              Crosswords
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Heading */}
-        <Text style={styles.heading}>
-          {mode === 'news'
-            ? '📰 Play today’s Civic Headlines'
-            : mode === 'facts'
-            ? '⭐ Play Civic Facts Mode'
-            : '🧩 Grid Crosswords from Civic Headlines'}
-        </Text>
-        <Text style={styles.helper}>
-          Solve each puzzle to uncover the full headline. Hints are auto-generated
-          to help you along.
-        </Text>
-
-        {/* List / loader / error */}
-        <View style={styles.listContainer}>
-          {loading ? (
-            <View style={styles.center}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.muted}>Loading puzzles…</Text>
-            </View>
-          ) : err ? (
-            <View style={styles.center}>
-              <Text style={[styles.muted, { color: colors.error }]}>{err}</Text>
-            </View>
-          ) : items.length === 0 ? (
-            <View style={styles.center}>
-              <Text style={styles.muted}>
-                No items yet. Add some via the admin page.
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={items}
-              keyExtractor={(item, idx) => String(item.id ?? idx)}
-              renderItem={renderItem}
-              contentContainerStyle={{ paddingBottom: spacing.lg }}
-            />
-          )}
-        </View>
-
-        {/* Banner, lifted above nav bar */}
-        <View style={styles.bannerWrap}>
-          <AdBanner />
+        <View>
+          <Text style={styles.headerTitle}>Choose Puzzle</Text>
+          <Text style={styles.headerSub}>
+            {city}
+            {puzzleFeedUrl ? " • feed enabled" : ""}
+          </Text>
         </View>
       </View>
+
+      <View style={styles.modeRow}>
+        {modes.map((m) => (
+          <TouchableOpacity
+            key={m.key}
+            style={[styles.modeBtn, mode === m.key && styles.modeBtnActive]}
+            onPress={() => setMode(m.key)}
+            activeOpacity={0.9}
+          >
+            <Text
+              style={[
+                styles.modeBtnText,
+                mode === m.key && styles.modeBtnTextActive,
+              ]}
+            >
+              {m.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <Text style={styles.pagePrompt}>
+        {mode === "news"
+          ? "Stay updated with the news making headlines — but reveal it by solving the puzzle first."
+          : mode === "facts"
+          ? "Play quick knowledge challenges."
+          : "Choose a crossword challenge."}
+      </Text>
+
+      {loading ? (
+        <View style={styles.loaderWrap}>
+          <ActivityIndicator size="large" color="#b8f27b" />
+          <Text style={styles.loaderText}>Loading challenge set…</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(item, idx) => `${mode}-${idx}`}
+          contentContainerStyle={styles.list}
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              style={styles.card}
+              activeOpacity={0.92}
+              onPress={() => openChallenge(item)}
+            >
+              <View style={styles.cardTop}>
+                <Text style={styles.cardBadge}>{getCardBadge()}</Text>
+                <Text style={styles.cardIndex}>{index + 1}</Text>
+              </View>
+
+              <Text style={styles.cardTitle}>{getCardTitle(index)}</Text>
+
+              <Text style={styles.cardDescription}>{getCardDescription()}</Text>
+
+              <TouchableOpacity
+                style={styles.revealBtn}
+                activeOpacity={0.9}
+                onPress={() => openChallenge(item)}
+              >
+                <Text style={styles.revealBtnText}>{getButtonText()}</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>
+              No content found yet. Add content or set a valid feed URL.
+            </Text>
+          }
+        />
+      )}
+      <AdRectangle />
     </SafeAreaView>
   );
 }
@@ -199,88 +203,134 @@ export default function LevelSelector({ navigation }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: "#09101d",
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  screen: {
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  backText: {
+    color: "#ffffff",
+    fontSize: 34,
+    lineHeight: 34,
+  },
+  headerTitle: {
+    color: "#ffffff",
+    fontSize: 28,
+    fontWeight: "900",
+  },
+  headerSub: {
+    color: "#9fb0c7",
+    fontSize: 14,
+    marginTop: 2,
+  },
+  modeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 14,
+  },
+  modeBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: "#1a2434",
+  },
+  modeBtnActive: {
+    backgroundColor: "#7f5af0",
+  },
+  modeBtnText: {
+    color: "#d0d8e6",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  modeBtnTextActive: {
+    color: "#ffffff",
+  },
+  pagePrompt: {
+    color: "#c7d2e1",
+    fontSize: 16,
+    lineHeight: 23,
+    marginBottom: 16,
+    fontWeight: "700",
+  },
+  loaderWrap: {
     flex: 1,
-    backgroundColor: colors.bg,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-    flexWrap: 'wrap',
+  loaderText: {
+    color: "#c7d2e2",
+    marginTop: 10,
+    fontSize: 15,
   },
-  toggleBtn: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.softBorder,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    backgroundColor: colors.card,
-  },
-  toggleActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  toggleText: {
-    fontWeight: '700',
-    color: colors.charcoal,
-    fontSize: 13,
-  },
-  toggleTextActive: {
-    color: '#ffffff',
-  },
-  heading: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#e5e7eb',
-    textAlign: 'center',
-    marginBottom: spacing.xs,
-  },
-  helper: {
-    fontSize: 13,
-    color: '#9ca3af',
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  listContainer: {
-    flex: 1,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  list: {
+    paddingBottom: 30,
   },
   card: {
-    backgroundColor: colors.card,
-    borderRadius: radius.xl,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+    backgroundColor: "rgba(10,16,26,0.94)",
+    borderRadius: 28,
+    padding: 20,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: colors.softBorder,
+    borderColor: "rgba(184,242,123,0.14)",
+  },
+  cardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  cardBadge: {
+    color: "#d8ffb0",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  cardIndex: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.charcoal,
-    marginBottom: 4,
+    color: "#ffffff",
+    fontSize: 26,
+    lineHeight: 34,
+    fontWeight: "900",
+    marginBottom: 10,
   },
-  cardSubtitle: {
-    fontSize: 13,
-    color: '#9ca3af',
+  cardDescription: {
+    color: "#b9c6d9",
+    fontSize: 16,
+    lineHeight: 23,
+    marginBottom: 18,
+    fontWeight: "700",
   },
-  muted: {
-    color: '#9ca3af',
-    fontSize: 14,
+  revealBtn: {
+    backgroundColor: "#a8eb63",
+    borderRadius: 22,
+    paddingVertical: 16,
+    alignItems: "center",
   },
-  bannerWrap: {
-    marginTop: spacing.sm,
-    paddingBottom: spacing.lg,
+  revealBtnText: {
+    color: "#071018",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  emptyText: {
+    color: "#b7c4d5",
+    textAlign: "center",
+    marginTop: 40,
+    fontSize: 15,
   },
 });

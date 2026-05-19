@@ -9,6 +9,44 @@
         "headline": "Local artists light up Bridge Mall with new mural",
         "readMoreUrl": "https://www.abc.net.au/news/ballarat"
       }
+    ],
+    "2026-W07": [
+      {
+        "headline": "Ballarat council confirms new health system building",
+        "readMoreUrl": "www.google.com",
+        "hint": "Starts with: Ballarat • Ends with: building"
+      }
+    ],
+    "2026-W08": [
+      {
+        "headline": "Ballarat council upgrades health sector",
+        "readMoreUrl": "www.google.com",
+        "hint": "Starts with: Ballarat • Ends with: sector"
+      }
+    ],
+    "2026-W09": [
+      {
+        "headline": "Laxa Technology goes live in 59 countries",
+        "readMoreUrl": "www.google.com",
+        "hint": "Starts with: Laxa • Ends with: countries"
+      }
+    ],
+    "2026-W18": [
+      {
+        "headline": "Ballarat council upgrades health system",
+        "readMoreUrl": "www.google.com",
+        "hint": "Starts with: Ballarat • Ends with: system"
+      },
+      {
+        "headline": "Ebenezer is the founder of LAXA TECHNOLOGY",
+        "readMoreUrl": "www.google.com",
+        "hint": "Starts with: Ebenezer • Ends with: TECHNOLOGY"
+      },
+      {
+        "headline": "Charlotte is pregnant with a beautiful young princess",
+        "readMoreUrl": "www.google.com",
+        "hint": "Starts with: Charlotte • Ends with: princess"
+      }
     ]
   },
   "facts": [
