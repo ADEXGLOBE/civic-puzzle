@@ -18,7 +18,6 @@ export default function LevelSelector({ navigation }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [city, setCity] = useState("Ballarat");
-  const [puzzleFeedUrl, setPuzzleFeedUrl] = useState("");
 
   const modes = [
     { key: "news", label: "News Puzzle" },
@@ -31,14 +30,11 @@ export default function LevelSelector({ navigation }) {
 
     try {
       const s = await loadSettings();
-      setCity(s.city || "Ballarat");
-      setPuzzleFeedUrl(s.puzzleFeedUrl || "");
+      const selectedCity = s.city || "Ballarat";
+      setCity(selectedCity);
 
       if (whichMode === "crossword") {
-        const qs = new URLSearchParams();
-      if (s.puzzleFeedUrl) qs.set("sourceUrl", s.puzzleFeedUrl);
-
-      const res = await fetch(`${API_BASE_URL}/api/crosswords?${qs.toString()}`);
+        const res = await fetch(`${API_BASE_URL}/api/crosswords`);
         const data = await res.json();
         setItems(Array.isArray(data) ? data : []);
         return;
@@ -47,16 +43,14 @@ export default function LevelSelector({ navigation }) {
       const endpoint = whichMode === "facts" ? "facts" : "puzzles";
 
       const qs = new URLSearchParams();
-      qs.set("city", s.city || "Ballarat");
-
-      if (whichMode === "news" && s.puzzleFeedUrl) {
-        qs.set("sourceUrl", s.puzzleFeedUrl);
-      }
+      qs.set("city", selectedCity);
 
       const res = await fetch(`${API_BASE_URL}/api/${endpoint}?${qs.toString()}`);
       const data = await res.json();
+
       setItems(Array.isArray(data) ? data : []);
     } catch (e) {
+      console.log("LevelSelector fetch error:", e);
       Alert.alert("Error", "Could not load puzzles. Check API URL + server.");
       setItems([]);
     } finally {
@@ -119,10 +113,7 @@ export default function LevelSelector({ navigation }) {
 
         <View>
           <Text style={styles.headerTitle}>Choose Puzzle</Text>
-          <Text style={styles.headerSub}>
-            {city}
-            {puzzleFeedUrl ? " • feed enabled" : ""}
-          </Text>
+          <Text style={styles.headerSub}>{city} • Admin feed active</Text>
         </View>
       </View>
 
@@ -164,6 +155,7 @@ export default function LevelSelector({ navigation }) {
           data={items}
           keyExtractor={(item, idx) => `${mode}-${idx}`}
           contentContainerStyle={styles.list}
+          ListFooterComponent={<AdRectangle />}
           renderItem={({ item, index }) => (
             <TouchableOpacity
               style={styles.card}
@@ -190,12 +182,11 @@ export default function LevelSelector({ navigation }) {
           )}
           ListEmptyComponent={
             <Text style={styles.emptyText}>
-              No content found yet. Add content or set a valid feed URL.
+              No content found yet. Check the Render feed URL/admin backend.
             </Text>
           }
         />
       )}
-      <AdRectangle />
     </SafeAreaView>
   );
 }
