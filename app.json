@@ -2,9 +2,9 @@
   "expo": {
     "name": "Civic Puzzle",
     "slug": "civic-puzzle",
-    "version": "4.0.0",
+    "version": "7.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.jpg",
+    "icon": "./assets/icon.jpeg",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.jpg",
@@ -28,11 +28,14 @@
     "android": {
       "package": "com.laxatechnology.civicpuzzle",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.jpg",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#020617"
       },
       "permissions": []
     },
+    "plugins": [
+      "expo-notifications"
+    ],
     "extra": {
       "privacyPolicyUrl": "https://civicpuzzle.onrender.com/privacy",
       "termsUrl": "https://civicpuzzle.onrender.com/terms",
