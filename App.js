@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -13,9 +13,25 @@ import LeaderboardScreen from "./screens/LeaderboardScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import TermsScreen from "./screens/TermsScreen";
 
+import {
+  registerForPushNotificationsAsync,
+  scheduleDailyPuzzleReminder,
+  scheduleEveningStreakReminder,
+} from "./utils/notifications";
+
 const Stack = createNativeStackNavigator();
 
 export default function App() {
+  useEffect(() => {
+    async function setupNotifications() {
+      await registerForPushNotificationsAsync();
+      await scheduleDailyPuzzleReminder();
+      await scheduleEveningStreakReminder();
+    }
+
+    setupNotifications();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <NavigationContainer>

@@ -21,6 +21,11 @@ async function fetchWithTimeout(url) {
 
   try {
     const res = await fetch(url, { signal: controller.signal });
+
+    if (!res.ok) {
+      throw new Error(`Request failed with status ${res.status}`);
+    }
+
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } finally {
@@ -35,9 +40,9 @@ export default function LevelSelector({ navigation }) {
   const [city, setCity] = useState("Ballarat");
 
   const modes = [
-    { key: "news", label: "News Puzzle" },
-    { key: "facts", label: "Quick Facts" },
-    { key: "crossword", label: "Crossword" },
+    { key: "news", label: "News Puzzle", emoji: "📰" },
+    { key: "facts", label: "Quick Facts", emoji: "💡" },
+    { key: "crossword", label: "Crossword", emoji: "🧩" },
   ];
 
   const fetchData = async (whichMode) => {
@@ -96,18 +101,20 @@ export default function LevelSelector({ navigation }) {
 
   const getCardDescription = () => {
     if (mode === "news") {
-      return "Reveal what you should know today. Solve each word to unlock the headline.";
+      return "Solve each word to unlock today’s headline and read the full story.";
     }
+
     if (mode === "facts") {
-      return "Test your knowledge with a quick fact puzzle.";
+      return "Turn useful facts into quick word challenges and build your knowledge.";
     }
-    return "Solve the crossword challenge.";
+
+    return "Solve news-inspired crossword clues built from live feed content.";
   };
 
   const getCardBadge = () => {
     if (mode === "news") return "🔥 Daily Civic";
-    if (mode === "facts") return "💡 Quick Facts";
-    return "🧩 Crossword";
+    if (mode === "facts") return "💡 Quick Knowledge";
+    return "🧩 Crossword Mode";
   };
 
   const getButtonText = () => {
@@ -116,6 +123,20 @@ export default function LevelSelector({ navigation }) {
     return "Start Crossword";
   };
 
+  const getModePrompt = () => {
+    if (mode === "news") {
+      return "Stay updated with the news making headlines — reveal the story by solving the puzzle first.";
+    }
+
+    if (mode === "facts") {
+      return "Play quick knowledge challenges powered by live news and facts.";
+    }
+
+    return "Choose a crossword built from today’s headlines and quick facts.";
+  };
+
+  const currentMode = modes.find((m) => m.key === mode);
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -123,9 +144,27 @@ export default function LevelSelector({ navigation }) {
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
 
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Choose Puzzle</Text>
-          <Text style={styles.headerSub}>{city} • Admin feed active</Text>
+          <Text style={styles.headerSub}>{city} • Live feed active</Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.refreshBtn}
+          onPress={() => fetchData(mode)}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.refreshText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.heroCard}>
+        <Text style={styles.heroEmoji}>{currentMode?.emoji || "🧩"}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.heroTitle}>{currentMode?.label}</Text>
+          <Text style={styles.heroMeta}>
+            {loading ? "Loading…" : `${items.length} challenge${items.length === 1 ? "" : "s"} ready`}
+          </Text>
         </View>
       </View>
 
@@ -137,6 +176,7 @@ export default function LevelSelector({ navigation }) {
             onPress={() => setMode(m.key)}
             activeOpacity={0.9}
           >
+            <Text style={styles.modeEmoji}>{m.emoji}</Text>
             <Text style={[styles.modeBtnText, mode === m.key && styles.modeBtnTextActive]}>
               {m.label}
             </Text>
@@ -144,13 +184,7 @@ export default function LevelSelector({ navigation }) {
         ))}
       </View>
 
-      <Text style={styles.pagePrompt}>
-        {mode === "news"
-          ? "Stay updated with the news making headlines — but reveal it by solving the puzzle first."
-          : mode === "facts"
-          ? "Play quick knowledge challenges."
-          : "Choose a crossword challenge."}
-      </Text>
+      <Text style={styles.pagePrompt}>{getModePrompt()}</Text>
 
       {loading ? (
         <View style={styles.loaderWrap}>
@@ -162,7 +196,11 @@ export default function LevelSelector({ navigation }) {
           data={items}
           keyExtractor={(item, idx) => `${mode}-${idx}`}
           contentContainerStyle={styles.list}
-          ListFooterComponent={<AdRectangle />}
+          ListHeaderComponent={
+            <View style={styles.adWrap}>
+              <AdRectangle />
+            </View>
+          }
           renderItem={({ item, index }) => (
             <TouchableOpacity
               style={styles.card}
@@ -171,25 +209,32 @@ export default function LevelSelector({ navigation }) {
             >
               <View style={styles.cardTop}>
                 <Text style={styles.cardBadge}>{getCardBadge()}</Text>
-                <Text style={styles.cardIndex}>{index + 1}</Text>
+                <Text style={styles.cardIndex}>#{index + 1}</Text>
               </View>
 
               <Text style={styles.cardTitle}>{getCardTitle(index)}</Text>
               <Text style={styles.cardDescription}>{getCardDescription()}</Text>
 
-              <TouchableOpacity
-                style={styles.revealBtn}
-                activeOpacity={0.9}
-                onPress={() => openChallenge(item)}
-              >
-                <Text style={styles.revealBtnText}>{getButtonText()}</Text>
-              </TouchableOpacity>
+              <View style={styles.cardFooter}>
+                <Text style={styles.rewardPreview}>+ XP • + Coins • Streak</Text>
+
+                <TouchableOpacity
+                  style={styles.revealBtn}
+                  activeOpacity={0.9}
+                  onPress={() => openChallenge(item)}
+                >
+                  <Text style={styles.revealBtnText}>{getButtonText()}</Text>
+                </TouchableOpacity>
+              </View>
             </TouchableOpacity>
           )}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              No content found yet. Check Render feed URL/admin backend.
-            </Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No content found yet</Text>
+              <Text style={styles.emptyText}>
+                Check Render feed URL/admin backend, then tap Refresh.
+              </Text>
+            </View>
           }
         />
       )}
@@ -204,11 +249,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 16,
   },
+
   backBtn: {
     width: 42,
     height: 42,
@@ -216,45 +263,105 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
+
   backText: {
     color: "#ffffff",
     fontSize: 34,
     lineHeight: 34,
   },
+
   headerTitle: {
     color: "#ffffff",
     fontSize: 28,
     fontWeight: "900",
   },
+
   headerSub: {
     color: "#9fb0c7",
     fontSize: 14,
     marginTop: 2,
+    fontWeight: "700",
   },
+
+  refreshBtn: {
+    backgroundColor: "#a8eb63",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+
+  refreshText: {
+    color: "#071018",
+    fontWeight: "900",
+    fontSize: 13,
+  },
+
+  heroCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(127,90,240,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(127,90,240,0.28)",
+    borderRadius: 26,
+    padding: 18,
+    marginBottom: 14,
+  },
+
+  heroEmoji: {
+    fontSize: 38,
+    marginRight: 14,
+  },
+
+  heroTitle: {
+    color: "#ffffff",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+
+  heroMeta: {
+    color: "#c7d2e1",
+    fontSize: 14,
+    marginTop: 4,
+    fontWeight: "800",
+  },
+
   modeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
     marginBottom: 14,
   },
+
   modeBtn: {
-    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 18,
     backgroundColor: "#1a2434",
   },
+
   modeBtnActive: {
     backgroundColor: "#7f5af0",
   },
+
+  modeEmoji: {
+    marginRight: 7,
+    fontSize: 16,
+  },
+
   modeBtnText: {
     color: "#d0d8e6",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
   },
+
   modeBtnTextActive: {
     color: "#ffffff",
   },
+
   pagePrompt: {
     color: "#c7d2e1",
     fontSize: 16,
@@ -262,19 +369,27 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontWeight: "700",
   },
+
   loaderWrap: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
+
   loaderText: {
     color: "#c7d2e2",
     marginTop: 10,
     fontSize: 15,
   },
+
   list: {
-    paddingBottom: 30,
+    paddingBottom: 34,
   },
+
+  adWrap: {
+    marginBottom: 16,
+  },
+
   card: {
     backgroundColor: "rgba(10,16,26,0.94)",
     borderRadius: 28,
@@ -283,29 +398,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(184,242,123,0.14)",
   },
+
   cardTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 14,
   },
+
   cardBadge: {
     color: "#d8ffb0",
     fontSize: 14,
     fontWeight: "900",
   },
+
   cardIndex: {
     color: "#ffffff",
     fontSize: 14,
     fontWeight: "900",
   },
+
   cardTitle: {
     color: "#ffffff",
-    fontSize: 26,
-    lineHeight: 34,
+    fontSize: 25,
+    lineHeight: 33,
     fontWeight: "900",
     marginBottom: 10,
   },
+
   cardDescription: {
     color: "#b9c6d9",
     fontSize: 16,
@@ -313,21 +433,52 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     fontWeight: "700",
   },
+
+  cardFooter: {
+    gap: 12,
+  },
+
+  rewardPreview: {
+    color: "#9fb0c7",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
   revealBtn: {
     backgroundColor: "#a8eb63",
     borderRadius: 22,
     paddingVertical: 16,
     alignItems: "center",
   },
+
   revealBtnText: {
     color: "#071018",
     fontSize: 17,
     fontWeight: "900",
   },
+
+  emptyCard: {
+    backgroundColor: "rgba(10,16,26,0.94)",
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: "rgba(184,242,123,0.14)",
+    marginTop: 20,
+  },
+
+  emptyTitle: {
+    color: "#ffffff",
+    fontWeight: "900",
+    fontSize: 18,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+
   emptyText: {
     color: "#b7c4d5",
     textAlign: "center",
-    marginTop: 40,
     fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "700",
   },
 });

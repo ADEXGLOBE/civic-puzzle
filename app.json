@@ -2,9 +2,9 @@
   "expo": {
     "name": "Civic Puzzle",
     "slug": "civic-puzzle",
-    "version": "3.0.0",
+    "version": "4.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon.jpg",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.jpg",
@@ -28,7 +28,7 @@
     "android": {
       "package": "com.laxatechnology.civicpuzzle",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/icon.jpg",
         "backgroundColor": "#020617"
       },
       "permissions": []
