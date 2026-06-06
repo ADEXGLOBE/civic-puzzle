@@ -13,6 +13,21 @@ import { API_BASE_URL } from "../config";
 import { loadSettings } from "./SettingsScreen";
 import AdRectangle from "../components/AdRectangle";
 
+const REQUEST_TIMEOUT_MS = 20000;
+
+async function fetchWithTimeout(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export default function LevelSelector({ navigation }) {
   const [mode, setMode] = useState("news");
   const [items, setItems] = useState([]);
@@ -34,21 +49,20 @@ export default function LevelSelector({ navigation }) {
       setCity(selectedCity);
 
       if (whichMode === "crossword") {
-        const res = await fetch(`${API_BASE_URL}/api/crosswords`);
-        const data = await res.json();
-        setItems(Array.isArray(data) ? data : []);
+        const data = await fetchWithTimeout(`${API_BASE_URL}/api/crosswords`);
+        setItems(data);
         return;
       }
 
       const endpoint = whichMode === "facts" ? "facts" : "puzzles";
-
       const qs = new URLSearchParams();
       qs.set("city", selectedCity);
 
-      const res = await fetch(`${API_BASE_URL}/api/${endpoint}?${qs.toString()}`);
-      const data = await res.json();
+      const data = await fetchWithTimeout(
+        `${API_BASE_URL}/api/${endpoint}?${qs.toString()}`
+      );
 
-      setItems(Array.isArray(data) ? data : []);
+      setItems(data);
     } catch (e) {
       console.log("LevelSelector fetch error:", e);
       Alert.alert("Error", "Could not load puzzles. Check API URL + server.");
@@ -84,11 +98,9 @@ export default function LevelSelector({ navigation }) {
     if (mode === "news") {
       return "Reveal what you should know today. Solve each word to unlock the headline.";
     }
-
     if (mode === "facts") {
       return "Test your knowledge with a quick fact puzzle.";
     }
-
     return "Solve the crossword challenge.";
   };
 
@@ -125,12 +137,7 @@ export default function LevelSelector({ navigation }) {
             onPress={() => setMode(m.key)}
             activeOpacity={0.9}
           >
-            <Text
-              style={[
-                styles.modeBtnText,
-                mode === m.key && styles.modeBtnTextActive,
-              ]}
-            >
+            <Text style={[styles.modeBtnText, mode === m.key && styles.modeBtnTextActive]}>
               {m.label}
             </Text>
           </TouchableOpacity>
@@ -168,7 +175,6 @@ export default function LevelSelector({ navigation }) {
               </View>
 
               <Text style={styles.cardTitle}>{getCardTitle(index)}</Text>
-
               <Text style={styles.cardDescription}>{getCardDescription()}</Text>
 
               <TouchableOpacity
@@ -182,7 +188,7 @@ export default function LevelSelector({ navigation }) {
           )}
           ListEmptyComponent={
             <Text style={styles.emptyText}>
-              No content found yet. Check the Render feed URL/admin backend.
+              No content found yet. Check Render feed URL/admin backend.
             </Text>
           }
         />

@@ -77,15 +77,39 @@ export default function GameScreen({ route, navigation }) {
   }, [currentIndex, currentWord]);
 
   function getCurrentHint() {
-    const currentHint = puzzleData?.progressiveHints?.[currentIndex];
+    const hints = puzzleData?.progressiveHints || [];
+
+    const currentHint =
+      hints.find(
+        (h) => h?.word?.toUpperCase() === currentWord?.toUpperCase()
+      ) || hints[currentIndex];
 
     if (!currentHint) return null;
 
-    if (hintLevel === 1) return `Category: ${currentHint.categoryHint}`;
-    if (hintLevel === 2) return currentHint.contextHint || `Context: linked to today’s news`;
-    if (hintLevel === 3) return `Starts with: ${currentHint.startsWith}`;
-    if (hintLevel === 4) return currentHint.clue;
-    if (hintLevel >= 5) return `Pattern: ${currentHint.revealPattern || ""}`;
+    const meaning =
+      currentHint.meaning ||
+      currentHint.clue ||
+      "No dictionary meaning available for this word.";
+
+    if (hintLevel === 1) {
+      return `Meaning: ${meaning}`;
+    }
+
+    if (hintLevel === 2) {
+      return `Category: ${currentHint.categoryHint || "News"}`;
+    }
+
+    if (hintLevel === 3) {
+      return `Starts with: ${currentHint.startsWith || currentWord.slice(0, 2)}`;
+    }
+
+    if (hintLevel === 4) {
+      return `Length: ${currentHint.answerLength || currentWord.length} letters`;
+    }
+
+    if (hintLevel >= 5) {
+      return `Pattern: ${currentHint.revealPattern || buildLocalPattern(currentWord)}`;
+    }
 
     return null;
   }
@@ -146,13 +170,15 @@ export default function GameScreen({ route, navigation }) {
       return;
     }
 
+    const nextHintLevel = Math.min(hintLevel + 1, 5);
+
     setProgressState((prev) => ({
       ...prev,
       coins: Math.max(0, prev.coins - 20),
     }));
 
-    setHintLevel((prev) => Math.min(prev + 1, 5));
-    setFeedback("Intelligent hint unlocked");
+    setHintLevel(nextHintLevel);
+    setFeedback(`Hint ${nextHintLevel} unlocked`);
   };
 
   const checkWord = async () => {
@@ -305,7 +331,7 @@ export default function GameScreen({ route, navigation }) {
             </View>
 
             <TouchableOpacity style={styles.hintBtn} onPress={useHint}>
-              <Text style={styles.hintBtnText}>Use Intelligent Hint (-20 coins)</Text>
+              <Text style={styles.hintBtnText}>Use Dictionary Hint (-20 coins)</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.submit} onPress={checkWord}>
@@ -358,6 +384,24 @@ function shuffle(arr) {
 function generateDecoys(n) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   return Array.from({ length: n }).map(() => alphabet[Math.floor(Math.random() * alphabet.length)]);
+}
+
+function buildLocalPattern(word) {
+  const clean = String(word || "").toUpperCase();
+
+  if (!clean) return "";
+
+  if (clean.length <= 2) {
+    return clean[0] + "_".repeat(Math.max(0, clean.length - 1));
+  }
+
+  return clean
+    .split("")
+    .map((letter, index) => {
+      if (index === 0 || index === clean.length - 1) return letter;
+      return "_";
+    })
+    .join(" ");
 }
 
 const styles = StyleSheet.create({

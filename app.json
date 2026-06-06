@@ -2,9 +2,9 @@
   "expo": {
     "name": "Civic Puzzle",
     "slug": "civic-puzzle",
-    "version": "1.0.0",
+    "version": "3.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.jpg",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.jpg",
@@ -14,24 +14,29 @@
     "updates": {
       "fallbackToCacheTimeout": 0
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.laxatechnology.civicpuzzle",
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "We use identifiers to deliver relevant ads and measure ad performance."
+        "NSUserTrackingUsageDescription": "We use identifiers to deliver relevant ads and measure ad performance.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.laxatechnology.civicpuzzle",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#020617"
       },
       "permissions": []
     },
     "extra": {
-      "privacyPolicyUrl": "https://YOUR_DOMAIN/privacy",
+      "privacyPolicyUrl": "https://civicpuzzle.onrender.com/privacy",
+      "termsUrl": "https://civicpuzzle.onrender.com/terms",
+      "disclaimerUrl": "https://civicpuzzle.onrender.com/disclaimer",
       "eas": {
         "projectId": "e9207585-6e7f-4663-8386-a6c94be078d9"
       }
