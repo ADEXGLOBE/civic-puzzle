@@ -8,13 +8,30 @@ import {
   SafeAreaView,
   ScrollView,
   Linking,
+  Platform,
 } from "react-native";
+import Constants from "expo-constants";
+import {
+  RewardedAd,
+  RewardedAdEventType,
+  TestIds,
+} from "react-native-google-mobile-ads";
+
 import {
   loadProgress,
+  saveProgress,
   rewardCorrectAnswer,
   penalizeWrongAnswer,
   getLevelProgress,
+  spendCoins,
 } from "../utils/gameProgress";
+
+const rewardedAdUnitId =
+  __DEV__
+    ? TestIds.REWARDED
+    : Platform.OS === "android"
+    ? Constants.expoConfig?.extra?.admob?.androidRewardedId
+    : Constants.expoConfig?.extra?.admob?.iosRewardedId;
 
 export default function GameScreen({ route, navigation }) {
   const { puzzleData } = route.params || {};
@@ -42,6 +59,7 @@ export default function GameScreen({ route, navigation }) {
   const [completed, setCompleted] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [hintLevel, setHintLevel] = useState(0);
+  const [rewardLoading, setRewardLoading] = useState(false);
 
   const [progressState, setProgressState] = useState({
     coins: 340,
@@ -80,9 +98,8 @@ export default function GameScreen({ route, navigation }) {
     const hints = puzzleData?.progressiveHints || [];
 
     const currentHint =
-      hints.find(
-        (h) => h?.word?.toUpperCase() === currentWord?.toUpperCase()
-      ) || hints[currentIndex];
+      hints.find((h) => h?.word?.toUpperCase() === currentWord?.toUpperCase()) ||
+      hints[currentIndex];
 
     if (!currentHint) return null;
 
@@ -91,28 +108,65 @@ export default function GameScreen({ route, navigation }) {
       currentHint.clue ||
       "No dictionary meaning available for this word.";
 
-    if (hintLevel === 1) {
-      return `Meaning: ${meaning}`;
-    }
-
-    if (hintLevel === 2) {
-      return `Category: ${currentHint.categoryHint || "News"}`;
-    }
-
-    if (hintLevel === 3) {
-      return `Starts with: ${currentHint.startsWith || currentWord.slice(0, 2)}`;
-    }
-
-    if (hintLevel === 4) {
-      return `Length: ${currentHint.answerLength || currentWord.length} letters`;
-    }
-
-    if (hintLevel >= 5) {
-      return `Pattern: ${currentHint.revealPattern || buildLocalPattern(currentWord)}`;
-    }
+    if (hintLevel === 1) return `Meaning: ${meaning}`;
+    if (hintLevel === 2) return `Category: ${currentHint.categoryHint || "News"}`;
+    if (hintLevel === 3) return `Starts with: ${currentHint.startsWith || currentWord.slice(0, 2)}`;
+    if (hintLevel === 4) return `Length: ${currentHint.answerLength || currentWord.length} letters`;
+    if (hintLevel >= 5) return `Pattern: ${currentHint.revealPattern || buildLocalPattern(currentWord)}`;
 
     return null;
   }
+
+  const watchRewardAdForCoins = () => {
+    if (!rewardedAdUnitId) {
+      Alert.alert("Ad unavailable", "Rewarded ads are not configured yet.");
+      return;
+    }
+
+    try {
+      setRewardLoading(true);
+
+      const rewarded = RewardedAd.createForAdRequest(rewardedAdUnitId, {
+        requestNonPersonalizedAdsOnly: true,
+      });
+
+      const unsubscribeLoaded = rewarded.addAdEventListener(
+        RewardedAdEventType.LOADED,
+        () => {
+          rewarded.show();
+        }
+      );
+
+      const unsubscribeEarned = rewarded.addAdEventListener(
+        RewardedAdEventType.EARNED_REWARD,
+        async () => {
+          const current = await loadProgress();
+
+          const next = {
+            ...current,
+            coins: (current.coins || 0) + 50,
+          };
+
+          await saveProgress(next);
+          setProgressState(next);
+          setRewardLoading(false);
+
+          Alert.alert("Reward Earned 🎉", "You received 50 coins.");
+        }
+      );
+
+      rewarded.load();
+
+      setTimeout(() => {
+        setRewardLoading(false);
+        unsubscribeLoaded();
+        unsubscribeEarned();
+      }, 30000);
+    } catch (error) {
+      setRewardLoading(false);
+      Alert.alert("Ad unavailable", "Could not load rewarded ad right now.");
+    }
+  };
 
   const pickTile = (letter, index) => {
     if (usedIndexes.includes(index)) return;
@@ -164,19 +218,25 @@ export default function GameScreen({ route, navigation }) {
     setFeedback(null);
   };
 
-  const useHint = () => {
-    if (progressState.coins < 20) {
-      Alert.alert("Not enough coins", "You need 20 coins to use a hint.");
+  const useHint = async () => {
+    if (hintLevel >= 5) {
+      Alert.alert("All hints used", "You have already unlocked all hints for this word.");
+      return;
+    }
+
+    const result = await spendCoins(20);
+
+    if (!result.ok) {
+      Alert.alert(
+        "Not enough coins",
+        "You need 20 coins to use a hint. Watch an ad to earn 50 coins."
+      );
       return;
     }
 
     const nextHintLevel = Math.min(hintLevel + 1, 5);
 
-    setProgressState((prev) => ({
-      ...prev,
-      coins: Math.max(0, prev.coins - 20),
-    }));
-
+    setProgressState(result.progress);
     setHintLevel(nextHintLevel);
     setFeedback(`Hint ${nextHintLevel} unlocked`);
   };
@@ -195,7 +255,7 @@ export default function GameScreen({ route, navigation }) {
       setFeedback("Wrong answer");
 
       if (updated.lives <= 0) {
-        Alert.alert("Out of lives", "You ran out of lives.", [
+        Alert.alert("Out of lives", "Watch an ad for coins or return to challenges.", [
           { text: "OK", onPress: () => navigation.goBack() },
         ]);
       } else {
@@ -243,7 +303,9 @@ export default function GameScreen({ route, navigation }) {
   }
 
   const currentDisplayNumber = Math.min(currentIndex + 1, words.length);
-  const revealedText = solvedWords.length ? solvedWords.join(" ") : "Solve each word to reveal the headline.";
+  const revealedText = solvedWords.length
+    ? solvedWords.join(" ")
+    : "Solve each word to reveal the headline.";
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -334,6 +396,12 @@ export default function GameScreen({ route, navigation }) {
               <Text style={styles.hintBtnText}>Use Dictionary Hint (-20 coins)</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity style={styles.rewardAdBtn} onPress={watchRewardAdForCoins}>
+              <Text style={styles.rewardAdBtnText}>
+                {rewardLoading ? "Loading Ad..." : "Watch Ad → Get 50 Coins"}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.submit} onPress={checkWord}>
               <Text style={styles.submitText}>Check Word</Text>
             </TouchableOpacity>
@@ -352,6 +420,12 @@ export default function GameScreen({ route, navigation }) {
               <View style={styles.rewardPill}><Text style={styles.rewardText}>+20 XP</Text></View>
               <View style={styles.rewardPill}><Text style={styles.rewardText}>🔥 {progressState.streak}</Text></View>
             </View>
+
+            <TouchableOpacity style={styles.rewardAdBtn} onPress={watchRewardAdForCoins}>
+              <Text style={styles.rewardAdBtnText}>
+                {rewardLoading ? "Loading Ad..." : "Watch Ad → Bonus 50 Coins"}
+              </Text>
+            </TouchableOpacity>
 
             {readMoreUrl ? (
               <TouchableOpacity style={styles.readBtn} onPress={openReadMore}>
@@ -446,6 +520,8 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   hintBtn: { backgroundColor: "#2b3140", paddingVertical: 16, borderRadius: 18, alignItems: "center", marginBottom: 12 },
   hintBtnText: { color: "#dbe2ea", fontSize: 16, fontWeight: "800" },
+  rewardAdBtn: { backgroundColor: "#7f5af0", paddingVertical: 16, borderRadius: 18, alignItems: "center", marginBottom: 12 },
+  rewardAdBtnText: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
   submit: { backgroundColor: "#84cc16", paddingVertical: 18, borderRadius: 20, alignItems: "center" },
   submitText: { color: "#071018", fontSize: 18, fontWeight: "900" },
   revealCard: { backgroundColor: "rgba(8,12,18,0.96)", borderRadius: 34, padding: 24, borderWidth: 1, borderColor: "rgba(184,242,123,0.2)" },
