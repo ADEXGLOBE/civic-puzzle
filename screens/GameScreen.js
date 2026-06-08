@@ -10,7 +10,7 @@ import {
   Linking,
   Platform,
 } from "react-native";
-import Constants from "expo-constants";
+// import Constants from "expo-constants";
 import {
   RewardedAd,
   RewardedAdEventType,
@@ -30,8 +30,8 @@ const rewardedAdUnitId =
   __DEV__
     ? TestIds.REWARDED
     : Platform.OS === "android"
-    ? Constants.expoConfig?.extra?.admob?.androidRewardedId
-    : Constants.expoConfig?.extra?.admob?.iosRewardedId;
+    ? "ca-app-pub-9113372641628364/7864252572"
+    : TestIds.REWARDED;
 
 export default function GameScreen({ route, navigation }) {
   const { puzzleData } = route.params || {};

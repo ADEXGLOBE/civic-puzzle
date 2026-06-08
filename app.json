@@ -2,9 +2,13 @@
   "expo": {
     "name": "Civic Puzzle",
     "slug": "civic-puzzle",
-    "version": "8.0.0",
+    "version": "9.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.jpeg",
+    "icon": "./assets/icon.png",
+    "adaptiveIcon": {
+  "foregroundImage": "./assets/adaptive-icon.png",
+  "backgroundColor": "#020617"
+},
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.jpg",
@@ -34,7 +38,7 @@
       [
         "react-native-google-mobile-ads",
         {
-          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "androidAppId": "ca-app-pub-9113372641628364~4719214483",
           "iosAppId": "ca-app-pub-3940256099942544~1458002511"
         }
       ]
@@ -44,8 +48,10 @@
       "termsUrl": "https://civicpuzzle.onrender.com/terms",
       "disclaimerUrl": "https://civicpuzzle.onrender.com/disclaimer",
       "admob": {
-        "androidBannerId": "ca-app-pub-3940256099942544/6300978111",
-        "iosBannerId": "ca-app-pub-3940256099942544/2934735716"
+        "androidBannerId": "ca-app-pub-9113372641628364/1494285348",
+        "androidRewardedId": "ca-app-pub-9113372641628364/7864252572",
+        "iosBannerId": "ca-app-pub-3940256099942544/2934735716",
+        "iosRewardedId": "ca-app-pub-3940256099942544/1712485313"
       },
       "eas": {
         "projectId": "e9207585-6e7f-4663-8386-a6c94be078d9"

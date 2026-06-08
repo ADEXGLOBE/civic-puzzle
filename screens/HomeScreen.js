@@ -7,8 +7,16 @@ import {
   ImageBackground,
   SafeAreaView,
   ScrollView,
+  Alert,
 } from "react-native";
-import { loadProgress, getLevelProgress } from "../utils/gameProgress";
+import {
+  loadProgress,
+  getLevelProgress,
+  getDailyRewardStatus,
+  claimDailyReward,
+  getAvailableAchievements,
+  claimAchievementReward,
+} from "../utils/gameProgress";
 import AdRectangle from "../components/AdRectangle";
 
 function getTodayLabel() {
@@ -30,20 +38,55 @@ export default function HomeScreen({ navigation }) {
     level: 1,
     xp: 0,
     todayCompleted: 0,
+    dailyRewardStreak: 0,
+    badges: [],
+    claimedAchievements: [],
   });
 
-  useEffect(() => {
-    const load = async () => {
-      const p = await loadProgress();
-      setProgress(p);
-    };
+  const [dailyStatus, setDailyStatus] = useState(null);
+  const [achievements, setAchievements] = useState([]);
 
-    const unsubscribe = navigation.addListener("focus", load);
-    load();
+  const refreshProgress = async () => {
+    const p = await loadProgress();
+    setProgress(p);
+    setDailyStatus(getDailyRewardStatus(p));
+    setAchievements(getAvailableAchievements(p));
+  };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", refreshProgress);
+    refreshProgress();
     return unsubscribe;
   }, [navigation]);
 
   const levelProgress = getLevelProgress(progress.xp);
+
+  const handleClaimDailyReward = async () => {
+    const result = await claimDailyReward();
+    setProgress(result.progress);
+    setDailyStatus(getDailyRewardStatus(result.progress));
+    setAchievements(getAvailableAchievements(result.progress));
+
+    Alert.alert(
+      result.ok ? "Daily Reward Claimed 🎁" : "Already Claimed",
+      result.message
+    );
+  };
+
+  const handleClaimAchievement = async (achievementId) => {
+    const result = await claimAchievementReward(achievementId);
+    setProgress(result.progress);
+    setDailyStatus(getDailyRewardStatus(result.progress));
+    setAchievements(getAvailableAchievements(result.progress));
+
+    Alert.alert(
+      result.ok ? "Achievement Claimed 🏆" : "Achievement",
+      result.message
+    );
+  };
+
+  const unlockedAchievements = achievements.filter((a) => a.unlocked);
+  const claimableAchievements = achievements.filter((a) => a.unlocked && !a.claimed);
 
   return (
     <ImageBackground
@@ -95,6 +138,32 @@ export default function HomeScreen({ navigation }) {
             </Text>
           </View>
 
+          <View style={styles.dailyCard}>
+            <Text style={styles.dailyBadge}>🎁 Daily Reward</Text>
+
+            {dailyStatus?.available ? (
+              <>
+                <Text style={styles.dailyTitle}>
+                  Day {dailyStatus.currentDay} reward is ready
+                </Text>
+                <Text style={styles.dailySub}>
+                  Claim {dailyStatus.reward?.coins} coins + {dailyStatus.reward?.xp} XP today.
+                </Text>
+
+                <TouchableOpacity style={styles.claimBtn} onPress={handleClaimDailyReward}>
+                  <Text style={styles.claimBtnText}>Claim Daily Reward</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.dailyTitle}>Reward claimed today ✅</Text>
+                <Text style={styles.dailySub}>
+                  Come back tomorrow to continue your reward streak.
+                </Text>
+              </>
+            )}
+          </View>
+
           <View style={styles.widgetCard}>
             <View style={styles.widgetHead}>
               <Text style={styles.widgetBadge}>🔥 Daily Civic</Text>
@@ -116,6 +185,43 @@ export default function HomeScreen({ navigation }) {
             >
               <Text style={styles.startBtnText}>Reveal Today’s Headline</Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.achievementCard}>
+            <View style={styles.achievementTop}>
+              <Text style={styles.achievementTitle}>🏆 Achievements</Text>
+              <Text style={styles.achievementCount}>
+                {unlockedAchievements.length}/{achievements.length}
+              </Text>
+            </View>
+
+            {claimableAchievements.length > 0 ? (
+              <>
+                <Text style={styles.achievementSub}>
+                  You have rewards ready to claim.
+                </Text>
+
+                {claimableAchievements.slice(0, 3).map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.achievementItem}
+                    onPress={() => handleClaimAchievement(item.id)}
+                  >
+                    <View>
+                      <Text style={styles.achievementName}>{item.title}</Text>
+                      <Text style={styles.achievementReward}>
+                        +{item.rewardCoins} coins • +{item.rewardXp} XP
+                      </Text>
+                    </View>
+                    <Text style={styles.claimMini}>Claim</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            ) : (
+              <Text style={styles.achievementSub}>
+                Keep playing to unlock more rewards.
+              </Text>
+            )}
           </View>
 
           <View style={styles.actions}>
@@ -144,9 +250,9 @@ export default function HomeScreen({ navigation }) {
               <Text style={styles.actionTitle}>Settings</Text>
               <Text style={styles.actionSub}>Choose city, player name, and feed URL</Text>
             </TouchableOpacity>
-            
           </View>
         </ScrollView>
+
         <AdRectangle />
       </SafeAreaView>
     </ImageBackground>
@@ -247,6 +353,44 @@ const styles = StyleSheet.create({
     color: "#9eb0c8",
     fontSize: 13,
   },
+  dailyCard: {
+    backgroundColor: "rgba(127,90,240,0.18)",
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: "rgba(127,90,240,0.4)",
+  },
+  dailyBadge: {
+    color: "#d8ffb0",
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 8,
+    textTransform: "uppercase",
+  },
+  dailyTitle: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+  dailySub: {
+    color: "#c7d2e1",
+    fontSize: 15,
+    lineHeight: 21,
+    marginBottom: 14,
+  },
+  claimBtn: {
+    backgroundColor: "#a8eb63",
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  claimBtnText: {
+    color: "#071018",
+    fontSize: 16,
+    fontWeight: "900",
+  },
   widgetCard: {
     backgroundColor: "rgba(8,12,18,0.9)",
     borderRadius: 28,
@@ -292,6 +436,60 @@ const styles = StyleSheet.create({
   startBtnText: {
     color: "#071018",
     fontSize: 18,
+    fontWeight: "900",
+  },
+  achievementCard: {
+    backgroundColor: "rgba(10,18,30,0.9)",
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  achievementTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  achievementTitle: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  achievementCount: {
+    color: "#a8eb63",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  achievementSub: {
+    color: "#b5c3d6",
+    fontSize: 15,
+    lineHeight: 21,
+    marginBottom: 10,
+  },
+  achievementItem: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  achievementName: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  achievementReward: {
+    color: "#c7d2e1",
+    fontSize: 13,
+    marginTop: 3,
+    fontWeight: "700",
+  },
+  claimMini: {
+    color: "#a8eb63",
+    fontSize: 14,
     fontWeight: "900",
   },
   actions: { gap: 12 },
