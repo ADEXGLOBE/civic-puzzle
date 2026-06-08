@@ -23,7 +23,7 @@ app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 function defaultStore() {
-  return { weeks: {}, facts: [], crosswords: [] };
+  return { weeks: {}, facts: [], crosswords: [], sponsors: [] };
 }
 
 function loadJsonSafe(file, fallback) {
@@ -52,66 +52,48 @@ function saveDictionaryCache() {
   saveJsonSafe(DICTIONARY_CACHE_FILE, dictionaryCache);
 }
 
+function saveStore() {
+  saveJsonSafe(DATA_FILE, store);
+}
+
 function requireAdmin(req) {
   const auth = req.headers["authorization"] || "";
-
-  if (!ADMIN_TOKEN) {
-    return auth === "Bearer puzzleMaster123";
-  }
-
+  if (!ADMIN_TOKEN) return auth === "Bearer puzzleMaster123";
   return auth === `Bearer ${ADMIN_TOKEN}`;
+}
+
+function cleanText(text) {
+  return String(text || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeUrl(url) {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) return "";
+  return u;
+}
+
+function cleanAnswerWord(word) {
+  return String(word || "").replace(/[^a-zA-Z]/g, "").toUpperCase();
 }
 
 function getCurrentWeekKey(date = new Date()) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
-
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
-}
-
-function cleanText(text) {
-  return String(text || "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeUrl(url) {
-  const u = String(url || "").trim();
-
-  if (!u) return "";
-  if (!/^https?:\/\//i.test(u)) return "";
-
-  return u;
-}
-
-function cleanAnswerWord(word) {
-  return String(word || "")
-    .replace(/[^a-zA-Z]/g, "")
-    .toUpperCase();
 }
 
 function makeHintFromHeadline(headline) {
   const words = String(headline || "").split(/\s+/).filter(Boolean);
-
-  if (words.length <= 2) {
-    return "Solve the headline one word at a time.";
-  }
-
+  if (words.length <= 2) return "Solve the headline one word at a time.";
   return `Starts with: ${words[0]} • Ends with: ${words[words.length - 1]}`;
 }
 
 function scrambleSentence(sentence) {
-  return String(sentence || "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .sort(() => Math.random() - 0.5)
-    .join(" ");
+  return String(sentence || "").split(/\s+/).filter(Boolean).sort(() => Math.random() - 0.5).join(" ");
 }
 
 function getStoredHeadlines() {
@@ -129,41 +111,30 @@ async function fetchText(url) {
     },
   });
 
-  if (!res.ok) {
-    throw new Error(`Could not fetch URL (${res.status})`);
-  }
-
+  if (!res.ok) throw new Error(`Could not fetch URL (${res.status})`);
   return await res.text();
 }
 
 function parseJsonFeed(text) {
   try {
     const json = JSON.parse(text);
-
     if (!Array.isArray(json)) return [];
 
-    return json
-      .map((item) => {
-        if (typeof item === "string") {
-          return {
-            headline: cleanText(item),
-            summary: "",
-            readMoreUrl: "",
-          };
-        }
+    return json.map((item) => {
+      if (typeof item === "string") {
+        return { headline: cleanText(item), summary: "", readMoreUrl: "" };
+      }
 
-        const headline = cleanText(item.headline || item.title || item.text);
+      const headline = cleanText(item.headline || item.title || item.text);
+      if (!headline) return null;
 
-        if (!headline) return null;
-
-        return {
-          headline,
-          summary: cleanText(item.summary || item.description || item.fact || ""),
-          readMoreUrl: cleanText(item.readMoreUrl || item.url || item.link || ""),
-          hint: cleanText(item.hint || ""),
-        };
-      })
-      .filter(Boolean);
+      return {
+        headline,
+        summary: cleanText(item.summary || item.description || item.fact || ""),
+        readMoreUrl: cleanText(item.readMoreUrl || item.url || item.link || ""),
+        hint: cleanText(item.hint || ""),
+      };
+    }).filter(Boolean);
   } catch {
     return [];
   }
@@ -191,10 +162,7 @@ function parseRssFeed(text) {
   $("entry").each((_, el) => {
     const headline = cleanText($(el).find("title").first().text());
     const link = cleanText($(el).find("link").first().attr("href"));
-    const description = cleanText(
-      $(el).find("summary").first().text() ||
-        $(el).find("content").first().text()
-    );
+    const description = cleanText($(el).find("summary").first().text() || $(el).find("content").first().text());
 
     if (headline) {
       items.push({
@@ -262,19 +230,14 @@ function parseHtmlNewsPage(text, sourceUrl) {
 
 async function getNewsItemsFromUrl(sourceUrl) {
   const url = normalizeUrl(sourceUrl);
-
   if (!url) return [];
 
   const cached = sourceCache.get(url);
-
-  if (cached && Date.now() - cached.ts < 10 * 60 * 1000) {
-    return cached.items;
-  }
+  if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return cached.items;
 
   const text = await fetchText(url);
 
   let items = parseJsonFeed(text);
-
   if (items.length === 0) items = parseRssFeed(text);
   if (items.length === 0) items = parseHtmlNewsPage(text, url);
 
@@ -289,68 +252,133 @@ async function getNewsItemsFromUrl(sourceUrl) {
     .slice(0, 20);
 
   sourceCache.set(url, { ts: Date.now(), items });
-
   return items;
 }
 
-// ---------- LIVE DICTIONARY HINT SYSTEM ----------
+// ---------- LOCATION-AWARE NEWS ----------
+
+function normalizeCity(city) {
+  const cleaned = cleanText(city || "Ballarat");
+  return cleaned || "Ballarat";
+}
+
+function normalizeRadius(radius) {
+  const allowed = ["local", "regional", "state", "national", "global"];
+  return allowed.includes(radius) ? radius : "local";
+}
+
+function getCountryFromCity(city) {
+  const c = String(city || "").toLowerCase();
+
+  const nigeriaCities = ["lagos", "abuja", "ibadan", "lekki", "ikeja", "victoria island", "port harcourt"];
+  const ukCities = ["london", "manchester", "birmingham"];
+  const usCities = ["new york", "los angeles", "chicago", "houston"];
+  const ghanaCities = ["accra", "kumasi"];
+
+  if (nigeriaCities.some((x) => c.includes(x))) return { gl: "NG", ceid: "NG:en", countryName: "Nigeria" };
+  if (ukCities.some((x) => c.includes(x))) return { gl: "GB", ceid: "GB:en", countryName: "United Kingdom" };
+  if (usCities.some((x) => c.includes(x))) return { gl: "US", ceid: "US:en", countryName: "United States" };
+  if (ghanaCities.some((x) => c.includes(x))) return { gl: "GH", ceid: "GH:en", countryName: "Ghana" };
+
+  return { gl: "AU", ceid: "AU:en", countryName: "Australia" };
+}
+
+function buildLocationQuery(city, radius) {
+  const safeCity = normalizeCity(city);
+  const r = normalizeRadius(radius);
+  const country = getCountryFromCity(safeCity).countryName;
+
+  if (r === "local") return `"${safeCity}" local news`;
+  if (r === "regional") return `"${safeCity}" regional news`;
+  if (r === "state") return `"${safeCity}" ${country} news`;
+  if (r === "national") return `${country} news`;
+  if (r === "global") return "world news";
+
+  return `"${safeCity}" local news`;
+}
+
+function buildGoogleNewsRssUrl(city, radius) {
+  const country = getCountryFromCity(city);
+  const query = buildLocationQuery(city, radius);
+
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en&gl=${country.gl}&ceid=${country.ceid}`;
+}
+
+async function getLocationAwareNews({ city = "Ballarat", radius = "local" } = {}) {
+  const sourceUrl = normalizeUrl(appConfig.feedUrl || "");
+
+  if (sourceUrl) {
+    return await getNewsItemsFromUrl(sourceUrl);
+  }
+
+  const locationUrl = buildGoogleNewsRssUrl(city, radius);
+  const items = await getNewsItemsFromUrl(locationUrl);
+
+  if (items.length > 0) return items;
+
+  const fallbackUrl = buildGoogleNewsRssUrl("Australia", "national");
+  return await getNewsItemsFromUrl(fallbackUrl);
+}
+
+// ---------- SPONSOR SYSTEM VERSION 10 ----------
+
+const DEFAULT_SPONSORS = [
+  {
+    id: "laxa",
+    name: "LAXA Technology",
+    city: "global",
+    message: "Build, market and deploy creative technology solutions.",
+    cta: "Discover LAXA Technology",
+    url: "https://civic-puzzle.onrender.com",
+    active: true,
+  },
+];
+
+function getSponsors() {
+  const existing = Array.isArray(store.sponsors) ? store.sponsors : [];
+  return [...DEFAULT_SPONSORS, ...existing].filter((s) => s && s.active !== false);
+}
+
+function chooseSponsor(city) {
+  const sponsors = getSponsors();
+  const cleanCity = normalizeCity(city).toLowerCase();
+
+  const citySponsor = sponsors.find((s) => String(s.city || "").toLowerCase() === cleanCity);
+  if (citySponsor) return citySponsor;
+
+  return sponsors.find((s) => String(s.city || "").toLowerCase() === "global") || null;
+}
+
+function attachSponsor(item, city, index) {
+  const sponsor = chooseSponsor(city);
+
+  if (!sponsor) return item;
+
+  // Show sponsor on every 3rd card plus first card.
+  const shouldAttach = index === 0 || index % 3 === 0;
+  if (!shouldAttach) return item;
+
+  return {
+    ...item,
+    sponsor: {
+      id: sponsor.id,
+      name: sponsor.name,
+      message: sponsor.message,
+      cta: sponsor.cta,
+      url: sponsor.url,
+    },
+  };
+}
+
+// ---------- DICTIONARY HINT SYSTEM ----------
 
 const STOP_WORDS = new Set([
-  "THE",
-  "AND",
-  "FOR",
-  "WITH",
-  "FROM",
-  "THIS",
-  "THAT",
-  "HAVE",
-  "HAS",
-  "WILL",
-  "ARE",
-  "WAS",
-  "WERE",
-  "YOU",
-  "YOUR",
-  "OUR",
-  "NEW",
-  "NEWS",
-  "TODAY",
-  "SAYS",
-  "SAID",
-  "INTO",
-  "OVER",
-  "AFTER",
-  "BEFORE",
-  "THEN",
-  "ALL",
-  "SAME",
-  "DAY",
-  "CAN",
-  "NOT",
-  "BUT",
-  "OUT",
-  "ABOUT",
-  "THEIR",
-  "THEY",
-  "THEM",
-  "WHO",
-  "WHAT",
-  "WHEN",
-  "WHERE",
-  "WHY",
-  "HOW",
-  "A",
-  "AN",
-  "OF",
-  "TO",
-  "IN",
-  "ON",
-  "AT",
-  "BY",
-  "AS",
-  "IS",
-  "BE",
-  "IT",
+  "THE", "AND", "FOR", "WITH", "FROM", "THIS", "THAT", "HAVE", "HAS", "WILL",
+  "ARE", "WAS", "WERE", "YOU", "YOUR", "OUR", "NEW", "NEWS", "TODAY", "SAYS",
+  "SAID", "INTO", "OVER", "AFTER", "BEFORE", "THEN", "ALL", "SAME", "DAY",
+  "CAN", "NOT", "BUT", "OUT", "ABOUT", "THEIR", "THEY", "THEM", "WHO", "WHAT",
+  "WHEN", "WHERE", "WHY", "HOW", "A", "AN", "OF", "TO", "IN", "ON", "AT",
+  "BY", "AS", "IS", "BE", "IT",
 ]);
 
 function fallbackMeaning(word) {
@@ -414,10 +442,7 @@ function buildRevealPattern(word) {
 
   return upper
     .split("")
-    .map((letter, index) => {
-      if (index === 0 || index === upper.length - 1) return letter;
-      return "_";
-    })
+    .map((letter, index) => (index === 0 || index === upper.length - 1 ? letter : "_"))
     .join(" ");
 }
 
@@ -426,21 +451,16 @@ async function fetchLiveDictionaryMeaning(word) {
 
   if (!clean || clean.length < 3) return null;
 
-  if (dictionaryCache[clean]) {
-    return dictionaryCache[clean];
-  }
+  if (dictionaryCache[clean]) return dictionaryCache[clean];
 
   try {
     const response = await fetch(
       `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(clean)}`
     );
 
-    if (!response.ok) {
-      return null;
-    }
+    if (!response.ok) return null;
 
     const data = await response.json();
-
     const meanings = data?.[0]?.meanings || [];
 
     let selectedMeaning = meanings.find((m) => {
@@ -448,9 +468,7 @@ async function fetchLiveDictionaryMeaning(word) {
       return definition && !definition.toLowerCase().includes(clean);
     });
 
-    if (!selectedMeaning) {
-      selectedMeaning = meanings[0];
-    }
+    if (!selectedMeaning) selectedMeaning = meanings[0];
 
     const definition = cleanText(selectedMeaning?.definitions?.[0]?.definition || "");
     const partOfSpeech = cleanText(selectedMeaning?.partOfSpeech || "");
@@ -467,22 +485,17 @@ async function fetchLiveDictionaryMeaning(word) {
     dictionaryCache[clean] = result;
     saveDictionaryCache();
 
-    console.log(`📘 Dictionary success: ${clean} = ${definition}`);
-
     return result;
-  } catch (error) {
-    console.log(`📕 Dictionary failed for ${clean}: ${error.message}`);
+  } catch {
     return null;
   }
 }
 
 async function buildHintForWord(word) {
   const upper = cleanAnswerWord(word);
-
   if (!upper) return null;
 
   const live = await fetchLiveDictionaryMeaning(upper);
-
   const meaning = live?.definition || fallbackMeaning(upper);
   const categoryHint = guessCategory(upper, live?.partOfSpeech || "");
 
@@ -536,18 +549,14 @@ function getCandidateWords(text) {
 function canPlaceWord(grid, word, row, col, direction) {
   if (direction === "across") {
     if (col + word.length > grid[0].length) return false;
-
     for (let i = 0; i < word.length; i++) {
       const existing = grid[row][col + i];
-
       if (existing && existing !== word[i]) return false;
     }
   } else {
     if (row + word.length > grid.length) return false;
-
     for (let i = 0; i < word.length; i++) {
       const existing = grid[row + i][col];
-
       if (existing && existing !== word[i]) return false;
     }
   }
@@ -557,15 +566,12 @@ function canPlaceWord(grid, word, row, col, direction) {
 
 function placeWord(grid, word, row, col, direction) {
   for (let i = 0; i < word.length; i++) {
-    if (direction === "across") {
-      grid[row][col + i] = word[i];
-    } else {
-      grid[row + i][col] = word[i];
-    }
+    if (direction === "across") grid[row][col + i] = word[i];
+    else grid[row + i][col] = word[i];
   }
 }
 
-async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl }) {
+async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl, sponsor }) {
   const rows = 12;
   const cols = 12;
   const grid = Array.from({ length: rows }, () => Array(cols).fill(null));
@@ -584,10 +590,7 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl }) 
   let num = 1;
 
   for (const word of words) {
-    const slot = slots.find(
-      (s) => !s.used && canPlaceWord(grid, word, s.row, s.col, s.direction)
-    );
-
+    const slot = slots.find((s) => !s.used && canPlaceWord(grid, word, s.row, s.col, s.direction));
     if (!slot) continue;
 
     placeWord(grid, word, slot.row, slot.col, slot.direction);
@@ -615,7 +618,6 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl }) 
         blocks.push([r, c]);
         return "#";
       }
-
       return cell;
     })
   );
@@ -623,13 +625,11 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl }) 
   return {
     id,
     title,
-    subtitle:
-      sourceType === "headline"
-        ? "Built from today’s headline"
-        : "Built from today’s fact",
+    subtitle: sourceType === "headline" ? "Built from local headline" : "Built from local fact",
     sourceType,
     revealText: text,
     readMoreUrl,
+    sponsor,
     size: { rows, cols },
     blocks,
     solution,
@@ -639,47 +639,23 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl }) 
   };
 }
 
-async function buildCrosswords() {
-  const sourceUrl = normalizeUrl(appConfig.feedUrl || "");
-  let items = [];
-
-  if (sourceUrl) {
-    items = await getNewsItemsFromUrl(sourceUrl);
-  } else {
-    const headlines = getStoredHeadlines().map((h) => ({
-      headline: h.headline,
-      summary: "",
-      readMoreUrl: h.readMoreUrl || "",
-    }));
-
-    const facts = (store.facts || []).map((f) => ({
-      headline: f.text,
-      summary: f.text,
-      readMoreUrl: f.readMoreUrl || "",
-      isFact: true,
-    }));
-
-    items = [...headlines, ...facts];
-  }
-
+async function buildCrosswords({ city = "Ballarat", radius = "local" } = {}) {
+  const items = await getLocationAwareNews({ city, radius });
   const crosswords = [];
 
   for (let index = 0; index < items.length; index++) {
-    const item = items[index];
+    const item = attachSponsor(items[index], city, index);
 
     const crossword = await buildAutoCrossword({
-      id: `${item.isFact ? "fact" : "headline"}-${index}`,
-      title: item.isFact
-        ? `News Fact Crossword #${index + 1}`
-        : `Headline Crossword #${index + 1}`,
-      sourceType: item.isFact ? "fact" : "headline",
+      id: `${city}-headline-${index}`,
+      title: `${city} Crossword #${index + 1}`,
+      sourceType: "headline",
       text: item.summary || item.headline,
       readMoreUrl: item.readMoreUrl || "",
+      sponsor: item.sponsor || null,
     });
 
-    if (crossword.entries.length > 0) {
-      crosswords.push(crossword);
-    }
+    if (crossword.entries.length > 0) crosswords.push(crossword);
   }
 
   return crosswords;
@@ -692,6 +668,8 @@ app.get("/api/config", (req, res) => {
     feedUrlEnabled: Boolean(appConfig.feedUrl),
     dictionaryHintsEnabled: true,
     aiHintsEnabled: false,
+    locationAwareNewsEnabled: true,
+    sponsoredPuzzlesEnabled: true,
   });
 });
 
@@ -703,7 +681,6 @@ app.get("/api/test-dictionary/:word", async (req, res) => {
 
 app.get("/api/admin/config", (req, res) => {
   if (!requireAdmin(req)) return res.status(401).send("Unauthorized");
-
   res.json(appConfig);
 });
 
@@ -713,13 +690,10 @@ app.post("/api/admin/set-feed-url", (req, res) => {
   const { url } = req.body || {};
   const cleanUrl = normalizeUrl(url);
 
-  if (!cleanUrl) {
-    return res.status(400).send("Invalid URL");
-  }
+  if (!cleanUrl) return res.status(400).send("Invalid URL");
 
   appConfig.feedUrl = cleanUrl;
   saveConfig();
-
   sourceCache.clear();
 
   res.json({ ok: true, feedUrl: appConfig.feedUrl });
@@ -727,13 +701,15 @@ app.post("/api/admin/set-feed-url", (req, res) => {
 
 app.get("/api/puzzles", async (req, res) => {
   try {
-    const city = String(req.query.city || "Ballarat").trim();
-    const sourceUrl = normalizeUrl(appConfig.feedUrl || "");
-    const items = sourceUrl ? await getNewsItemsFromUrl(sourceUrl) : getStoredHeadlines();
+    const city = normalizeCity(req.query.city || "Ballarat");
+    const radius = normalizeRadius(req.query.radius || "local");
+    const locationMode = cleanText(req.query.locationMode || "manual");
 
+    const items = await getLocationAwareNews({ city, radius });
     const puzzles = [];
 
-    for (const h of items) {
+    for (let index = 0; index < items.length; index++) {
+      const h = attachSponsor(items[index], city, index);
       const headline = cleanText(h.headline);
 
       puzzles.push({
@@ -742,6 +718,9 @@ app.get("/api/puzzles", async (req, res) => {
         readMoreUrl: h.readMoreUrl || "",
         hint: h.hint || makeHintFromHeadline(headline),
         city,
+        radius,
+        locationMode,
+        sponsor: h.sponsor || null,
         progressiveHints: await buildProgressiveHintsForText(headline),
       });
     }
@@ -749,47 +728,50 @@ app.get("/api/puzzles", async (req, res) => {
     res.json(puzzles);
   } catch (error) {
     console.log("Puzzle generation failed:", error.message);
-    res.status(500).json({ error: "Failed to generate puzzles" });
+    res.status(500).json({ error: "Failed to generate local puzzles" });
   }
 });
 
 app.get("/api/facts", async (req, res) => {
   try {
-    const sourceUrl = normalizeUrl(appConfig.feedUrl || "");
+    const city = normalizeCity(req.query.city || "Ballarat");
+    const radius = normalizeRadius(req.query.radius || "local");
 
-    if (sourceUrl) {
-      const items = await getNewsItemsFromUrl(sourceUrl);
-      const facts = [];
+    const items = await getLocationAwareNews({ city, radius });
+    const facts = [];
 
-      for (let index = 0; index < items.length; index++) {
-        const item = items[index];
-        const text = item.summary || item.headline;
+    for (let index = 0; index < items.length; index++) {
+      const item = attachSponsor(items[index], city, index);
+      const text = item.summary || item.headline;
 
-        facts.push({
-          text,
-          readMoreUrl: item.readMoreUrl,
-          hint: `Fact challenge #${index + 1}`,
-          progressiveHints: await buildProgressiveHintsForText(text),
-        });
-      }
-
-      return res.json(facts);
+      facts.push({
+        text,
+        city,
+        radius,
+        readMoreUrl: item.readMoreUrl,
+        sponsor: item.sponsor || null,
+        hint: `${city} fact challenge #${index + 1}`,
+        progressiveHints: await buildProgressiveHintsForText(text),
+      });
     }
 
-    res.json(store.facts || []);
+    res.json(facts);
   } catch (error) {
     console.log("Facts failed:", error.message);
-    res.status(500).json({ error: "Failed to load facts" });
+    res.status(500).json({ error: "Failed to load local facts" });
   }
 });
 
 app.get("/api/crosswords", async (req, res) => {
   try {
-    const crosswords = await buildCrosswords();
+    const city = normalizeCity(req.query.city || "Ballarat");
+    const radius = normalizeRadius(req.query.radius || "local");
+
+    const crosswords = await buildCrosswords({ city, radius });
     res.json([...(crosswords || []), ...(store.crosswords || [])]);
   } catch (error) {
     console.log("Crossword generation failed:", error.message);
-    res.status(500).json({ error: "Failed to generate crosswords" });
+    res.status(500).json({ error: "Failed to generate local crosswords" });
   }
 });
 
@@ -798,12 +780,9 @@ app.post("/api/headlines", (req, res) => {
 
   const { headline, readMoreUrl = "", hint } = req.body || {};
 
-  if (!headline) {
-    return res.status(400).send("Headline is required");
-  }
+  if (!headline) return res.status(400).send("Headline is required");
 
   const wk = getCurrentWeekKey();
-
   store.weeks[wk] = store.weeks[wk] || [];
 
   const clean = cleanText(headline);
@@ -816,7 +795,7 @@ app.post("/api/headlines", (req, res) => {
       hint: hint || makeHintFromHeadline(clean),
     });
 
-    saveJsonSafe(DATA_FILE, store);
+    saveStore();
   }
 
   res.json({ ok: true, week: wk, count: store.weeks[wk].length });
@@ -827,9 +806,7 @@ app.post("/api/facts", (req, res) => {
 
   const { text, readMoreUrl = "", hint } = req.body || {};
 
-  if (!text) {
-    return res.status(400).send("Fact text is required");
-  }
+  if (!text) return res.status(400).send("Fact text is required");
 
   const clean = cleanText(text);
   const exists = store.facts.some((f) => f.text === clean);
@@ -841,10 +818,41 @@ app.post("/api/facts", (req, res) => {
       hint: hint || `Think: ${clean.slice(0, 18)}...`,
     });
 
-    saveJsonSafe(DATA_FILE, store);
+    saveStore();
   }
 
   res.json({ ok: true, count: store.facts.length });
+});
+
+// Version 10 sponsor admin route
+app.post("/api/admin/sponsors", (req, res) => {
+  if (!requireAdmin(req)) return res.status(401).send("Unauthorized");
+
+  const { name, city = "global", message = "", cta = "Learn More", url = "" } = req.body || {};
+
+  if (!name) return res.status(400).send("Sponsor name is required");
+
+  store.sponsors = Array.isArray(store.sponsors) ? store.sponsors : [];
+
+  const sponsor = {
+    id: `${Date.now()}`,
+    name: cleanText(name),
+    city: cleanText(city || "global"),
+    message: cleanText(message),
+    cta: cleanText(cta),
+    url: normalizeUrl(url),
+    active: true,
+    createdAt: Date.now(),
+  };
+
+  store.sponsors.push(sponsor);
+  saveStore();
+
+  res.json({ ok: true, sponsor });
+});
+
+app.get("/api/sponsors", (req, res) => {
+  res.json(getSponsors());
 });
 
 app.get("/api/leaderboard", (req, res) => {
@@ -887,5 +895,6 @@ app.post("/api/leaderboard", (req, res) => {
 app.listen(port, () => {
   console.log(`✅ Civic Puzzle backend running on port ${port}`);
   console.log("📘 Dictionary hints enabled: true");
-  console.log("🧠 AI hints enabled: false");
+  console.log("📍 Location-aware news enabled: true");
+  console.log("🤝 Sponsored puzzles enabled: true");
 });

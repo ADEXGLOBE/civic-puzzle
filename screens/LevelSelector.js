@@ -38,6 +38,8 @@ export default function LevelSelector({ navigation }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [city, setCity] = useState("Ballarat");
+  const [radius, setRadius] = useState("local");
+  const [locationMode, setLocationMode] = useState("manual");
 
   const modes = [
     { key: "news", label: "News Puzzle", emoji: "📰" },
@@ -50,18 +52,29 @@ export default function LevelSelector({ navigation }) {
 
     try {
       const s = await loadSettings();
+
       const selectedCity = s.city || "Ballarat";
+      const selectedRadius = s.newsRadius || "local";
+      const selectedLocationMode = s.locationMode || "manual";
+
       setCity(selectedCity);
+      setRadius(selectedRadius);
+      setLocationMode(selectedLocationMode);
+
+      const qs = new URLSearchParams();
+      qs.set("city", selectedCity);
+      qs.set("radius", selectedRadius);
+      qs.set("locationMode", selectedLocationMode);
 
       if (whichMode === "crossword") {
-        const data = await fetchWithTimeout(`${API_BASE_URL}/api/crosswords`);
+        const data = await fetchWithTimeout(
+          `${API_BASE_URL}/api/crosswords?${qs.toString()}`
+        );
         setItems(data);
         return;
       }
 
       const endpoint = whichMode === "facts" ? "facts" : "puzzles";
-      const qs = new URLSearchParams();
-      qs.set("city", selectedCity);
 
       const data = await fetchWithTimeout(
         `${API_BASE_URL}/api/${endpoint}?${qs.toString()}`
@@ -70,7 +83,7 @@ export default function LevelSelector({ navigation }) {
       setItems(data);
     } catch (e) {
       console.log("LevelSelector fetch error:", e);
-      Alert.alert("Error", "Could not load puzzles. Check API URL + server.");
+      Alert.alert("Error", "Could not load local puzzles. Check API URL + server.");
       setItems([]);
     } finally {
       setLoading(false);
@@ -78,8 +91,10 @@ export default function LevelSelector({ navigation }) {
   };
 
   useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => fetchData(mode));
     fetchData(mode);
-  }, [mode]);
+    return unsubscribe;
+  }, [mode, navigation]);
 
   const openChallenge = (item) => {
     if (mode === "crossword") {
@@ -89,50 +104,66 @@ export default function LevelSelector({ navigation }) {
         puzzleData: item,
         mode,
         city,
+        radius,
+        locationMode,
       });
     }
   };
 
   const getCardTitle = (index) => {
-    if (mode === "news") return `Headline Challenge #${index + 1}`;
-    if (mode === "facts") return `Quick Fact Challenge #${index + 1}`;
-    return `Crossword Challenge #${index + 1}`;
+    if (mode === "news") return `${city} Headline #${index + 1}`;
+    if (mode === "facts") return `${city} Quick Fact #${index + 1}`;
+    return `${city} Crossword #${index + 1}`;
   };
 
   const getCardDescription = () => {
     if (mode === "news") {
-      return "Solve each word to unlock today’s headline and read the full story.";
+      return `Solve each word to unlock a headline selected for ${city}.`;
     }
 
     if (mode === "facts") {
-      return "Turn useful facts into quick word challenges and build your knowledge.";
+      return `Turn local information into quick word challenges for ${city}.`;
     }
 
-    return "Solve news-inspired crossword clues built from live feed content.";
+    return `Solve crossword clues built from ${city}-focused content.`;
   };
 
   const getCardBadge = () => {
-    if (mode === "news") return "🔥 Daily Civic";
-    if (mode === "facts") return "💡 Quick Knowledge";
-    return "🧩 Crossword Mode";
+    if (mode === "news") return "📍 Local Civic";
+    if (mode === "facts") return "💡 Local Facts";
+    return "🧩 Local Crossword";
   };
 
   const getButtonText = () => {
-    if (mode === "news") return "Reveal Headline";
-    if (mode === "facts") return "Start Fact Puzzle";
-    return "Start Crossword";
+    if (mode === "news") return "Reveal Local Headline";
+    if (mode === "facts") return "Start Local Fact";
+    return "Start Local Crossword";
   };
 
   const getModePrompt = () => {
+    const sourceText =
+      locationMode === "auto"
+        ? "using your detected location"
+        : "using your selected city";
+
     if (mode === "news") {
-      return "Stay updated with the news making headlines — reveal the story by solving the puzzle first.";
+      return `Stay updated with ${city} news ${sourceText}.`;
     }
 
     if (mode === "facts") {
-      return "Play quick knowledge challenges powered by live news and facts.";
+      return `Play quick knowledge challenges linked to ${city}.`;
     }
 
-    return "Choose a crossword built from today’s headlines and quick facts.";
+    return `Choose a crossword built from ${city}-focused headlines and facts.`;
+  };
+
+  const getRadiusLabel = () => {
+    if (radius === "local") return "Local";
+    if (radius === "regional") return "Regional";
+    if (radius === "state") return "State";
+    if (radius === "national") return "National";
+    if (radius === "global") return "Global";
+    return "Local";
   };
 
   const currentMode = modes.find((m) => m.key === mode);
@@ -146,7 +177,9 @@ export default function LevelSelector({ navigation }) {
 
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Choose Puzzle</Text>
-          <Text style={styles.headerSub}>{city} • Live feed active</Text>
+          <Text style={styles.headerSub}>
+            {city} • {getRadiusLabel()} • {locationMode === "auto" ? "Auto location" : "Manual"}
+          </Text>
         </View>
 
         <TouchableOpacity
@@ -158,12 +191,28 @@ export default function LevelSelector({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.locationCard}>
+        <Text style={styles.locationTitle}>📍 Local News Mode</Text>
+        <Text style={styles.locationText}>
+          Showing {getRadiusLabel().toLowerCase()} challenges for {city}.
+        </Text>
+
+        <TouchableOpacity
+          style={styles.locationBtn}
+          onPress={() => navigation.navigate("Settings")}
+        >
+          <Text style={styles.locationBtnText}>Change Location</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.heroCard}>
         <Text style={styles.heroEmoji}>{currentMode?.emoji || "🧩"}</Text>
         <View style={{ flex: 1 }}>
           <Text style={styles.heroTitle}>{currentMode?.label}</Text>
           <Text style={styles.heroMeta}>
-            {loading ? "Loading…" : `${items.length} challenge${items.length === 1 ? "" : "s"} ready`}
+            {loading
+              ? "Loading…"
+              : `${items.length} ${city} challenge${items.length === 1 ? "" : "s"} ready`}
           </Text>
         </View>
       </View>
@@ -189,12 +238,12 @@ export default function LevelSelector({ navigation }) {
       {loading ? (
         <View style={styles.loaderWrap}>
           <ActivityIndicator size="large" color="#b8f27b" />
-          <Text style={styles.loaderText}>Loading challenge set…</Text>
+          <Text style={styles.loaderText}>Loading local challenge set…</Text>
         </View>
       ) : (
         <FlatList
           data={items}
-          keyExtractor={(item, idx) => `${mode}-${idx}`}
+          keyExtractor={(item, idx) => `${mode}-${city}-${idx}`}
           contentContainerStyle={styles.list}
           ListHeaderComponent={
             <View style={styles.adWrap}>
@@ -215,6 +264,14 @@ export default function LevelSelector({ navigation }) {
               <Text style={styles.cardTitle}>{getCardTitle(index)}</Text>
               <Text style={styles.cardDescription}>{getCardDescription()}</Text>
 
+              {item?.sponsor ? (
+                <View style={styles.sponsorPill}>
+                  <Text style={styles.sponsorPillText}>
+                    Sponsored by {item.sponsor.name}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={styles.cardFooter}>
                 <Text style={styles.rewardPreview}>+ XP • + Coins • Streak</Text>
 
@@ -230,9 +287,9 @@ export default function LevelSelector({ navigation }) {
           )}
           ListEmptyComponent={
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No content found yet</Text>
+              <Text style={styles.emptyTitle}>No local content found yet</Text>
               <Text style={styles.emptyText}>
-                Check Render feed URL/admin backend, then tap Refresh.
+                Try another city, switch radius, or check the backend feed.
               </Text>
             </View>
           }
@@ -280,7 +337,7 @@ const styles = StyleSheet.create({
 
   headerSub: {
     color: "#9fb0c7",
-    fontSize: 14,
+    fontSize: 13,
     marginTop: 2,
     fontWeight: "700",
   },
@@ -296,6 +353,42 @@ const styles = StyleSheet.create({
     color: "#071018",
     fontWeight: "900",
     fontSize: 13,
+  },
+
+  locationCard: {
+    backgroundColor: "rgba(168,235,99,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(168,235,99,0.2)",
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 14,
+  },
+
+  locationTitle: {
+    color: "#d8ffb0",
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 5,
+  },
+
+  locationText: {
+    color: "#c7d2e1",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+
+  locationBtn: {
+    backgroundColor: "#1a2434",
+    borderRadius: 16,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+
+  locationBtnText: {
+    color: "#ffffff",
+    fontWeight: "900",
+    fontSize: 14,
   },
 
   heroCard: {
@@ -432,6 +525,21 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     marginBottom: 18,
     fontWeight: "700",
+  },
+
+  sponsorPill: {
+    backgroundColor: "rgba(255,216,77,0.12)",
+    borderRadius: 16,
+    padding: 10,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,216,77,0.25)",
+  },
+
+  sponsorPillText: {
+    color: "#ffd84d",
+    fontSize: 13,
+    fontWeight: "900",
   },
 
   cardFooter: {
