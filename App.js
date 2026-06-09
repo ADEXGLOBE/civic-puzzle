@@ -12,11 +12,13 @@ import AboutScreen from "./screens/AboutScreen";
 import LeaderboardScreen from "./screens/LeaderboardScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import TermsScreen from "./screens/TermsScreen";
+import AchievementsScreen from "./screens/AchievementsScreen";
 
 import {
   registerForPushNotificationsAsync,
   scheduleDailyPuzzleReminder,
   scheduleEveningStreakReminder,
+  scheduleDailyRewardReminder,
 } from "./utils/notifications";
 
 const Stack = createNativeStackNavigator();
@@ -27,6 +29,7 @@ export default function App() {
       await registerForPushNotificationsAsync();
       await scheduleDailyPuzzleReminder();
       await scheduleEveningStreakReminder();
+      await scheduleDailyRewardReminder();
     }
 
     setupNotifications();
@@ -48,6 +51,7 @@ export default function App() {
           <Stack.Screen name="GameScreen" component={GameScreen} />
           <Stack.Screen name="CrosswordScreen" component={CrosswordScreen} />
           <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
+          <Stack.Screen name="Achievements" component={AchievementsScreen} />
           <Stack.Screen name="About" component={AboutScreen} />
           <Stack.Screen name="Terms" component={TermsScreen} />
         </Stack.Navigator>

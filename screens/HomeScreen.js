@@ -234,7 +234,13 @@ export default function HomeScreen({ navigation }) {
                 Stay updated with the news making headlines
               </Text>
             </TouchableOpacity>
-
+            <TouchableOpacity
+  style={styles.actionCard}
+  onPress={() => navigation.navigate("Achievements")}
+>
+  <Text style={styles.actionTitle}>Achievements</Text>
+  <Text style={styles.actionSub}>View badges, progress, and claim rewards</Text>
+</TouchableOpacity>
             <TouchableOpacity
               style={styles.actionCard}
               onPress={() => navigation.navigate("Leaderboard")}
