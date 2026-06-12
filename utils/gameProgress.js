@@ -20,6 +20,8 @@ export const ACHIEVEMENTS = [
   { id: "seven_day_streak", title: "7 Day Streak", rewardCoins: 200, rewardXp: 80 },
   { id: "dictionary_master", title: "Dictionary Master", rewardCoins: 150, rewardXp: 60 },
   { id: "xp_club", title: "500 XP Club", rewardCoins: 200, rewardXp: 100 },
+  { id: "word_revealer", title: "Word Revealer", rewardCoins: 100, rewardXp: 40 },
+  { id: "puzzle_revealer", title: "Puzzle Revealer", rewardCoins: 150, rewardXp: 60 },
 ];
 
 export const DEFAULT_PROGRESS = {
@@ -39,6 +41,9 @@ export const DEFAULT_PROGRESS = {
   totalSolved: 0,
   totalWrong: 0,
   totalHintsUsed: 0,
+  totalWordsRevealed: 0,
+  totalPuzzlesRevealed: 0,
+  totalRewardAdsWatched: 0,
 
   lastPlayedDate: null,
   lastStreakDate: null,
@@ -161,6 +166,8 @@ function applyMilestoneBadges(progress) {
   if (next.streak >= 7) next = addBadge(next, "7 Day Streak");
   if (next.streak >= 30) next = addBadge(next, "30 Day Legend");
   if (next.totalHintsUsed >= 10) next = addBadge(next, "Dictionary Master");
+  if (next.totalWordsRevealed >= 5) next = addBadge(next, "Word Revealer");
+  if (next.totalPuzzlesRevealed >= 3) next = addBadge(next, "Puzzle Revealer");
   if (next.xp >= 500) next = addBadge(next, "500 XP Club");
 
   return next;
@@ -180,7 +187,7 @@ export function getDailyRewardStatus(progress) {
 
   const continues = isYesterday(progress.lastDailyRewardDate);
   const nextStreak = continues ? (progress.dailyRewardStreak || 0) + 1 : 1;
-  const rewardIndex = ((nextStreak - 1) % DAILY_REWARDS.length);
+  const rewardIndex = (nextStreak - 1) % DAILY_REWARDS.length;
   const reward = DAILY_REWARDS[rewardIndex];
 
   return {
@@ -239,34 +246,15 @@ export function getAvailableAchievements(progress) {
     : [];
 
   const checks = [
-    {
-      id: "first_solve",
-      unlocked: (progress.totalSolved || 0) >= 1,
-    },
-    {
-      id: "ten_solver",
-      unlocked: (progress.totalSolved || 0) >= 10,
-    },
-    {
-      id: "fifty_master",
-      unlocked: (progress.totalSolved || 0) >= 50,
-    },
-    {
-      id: "three_day_streak",
-      unlocked: (progress.streak || 0) >= 3,
-    },
-    {
-      id: "seven_day_streak",
-      unlocked: (progress.streak || 0) >= 7,
-    },
-    {
-      id: "dictionary_master",
-      unlocked: (progress.totalHintsUsed || 0) >= 10,
-    },
-    {
-      id: "xp_club",
-      unlocked: (progress.xp || 0) >= 500,
-    },
+    { id: "first_solve", unlocked: (progress.totalSolved || 0) >= 1 },
+    { id: "ten_solver", unlocked: (progress.totalSolved || 0) >= 10 },
+    { id: "fifty_master", unlocked: (progress.totalSolved || 0) >= 50 },
+    { id: "three_day_streak", unlocked: (progress.streak || 0) >= 3 },
+    { id: "seven_day_streak", unlocked: (progress.streak || 0) >= 7 },
+    { id: "dictionary_master", unlocked: (progress.totalHintsUsed || 0) >= 10 },
+    { id: "xp_club", unlocked: (progress.xp || 0) >= 500 },
+    { id: "word_revealer", unlocked: (progress.totalWordsRevealed || 0) >= 5 },
+    { id: "puzzle_revealer", unlocked: (progress.totalPuzzlesRevealed || 0) >= 3 },
   ];
 
   return ACHIEVEMENTS.map((achievement) => {
@@ -419,6 +407,29 @@ export async function spendCoins(amount = 20) {
   let next = {
     ...current,
     coins: Math.max(0, (current.coins || 0) - amount),
+  };
+
+  await saveProgress(next);
+
+  return {
+    ok: true,
+    progress: next,
+  };
+}
+
+export async function spendCoinsForHint(amount = 20) {
+  const current = await loadProgress();
+
+  if ((current.coins || 0) < amount) {
+    return {
+      ok: false,
+      progress: current,
+    };
+  }
+
+  let next = {
+    ...current,
+    coins: Math.max(0, (current.coins || 0) - amount),
     totalHintsUsed: (current.totalHintsUsed || 0) + 1,
   };
 
@@ -429,6 +440,115 @@ export async function spendCoins(amount = 20) {
   return {
     ok: true,
     progress: next,
+  };
+}
+
+export async function purchaseWordReveal() {
+  const current = await loadProgress();
+
+  if ((current.coins || 0) < 50) {
+    return {
+      ok: false,
+      progress: current,
+      message: "You need 50 coins to reveal a word.",
+    };
+  }
+
+  let next = {
+    ...current,
+    coins: Math.max(0, (current.coins || 0) - 50),
+    totalWordsRevealed: (current.totalWordsRevealed || 0) + 1,
+  };
+
+  next = applyMilestoneBadges(next);
+
+  await saveProgress(next);
+
+  return {
+    ok: true,
+    progress: next,
+    message: "Word revealed.",
+  };
+}
+
+export async function purchasePuzzleReveal() {
+  const current = await loadProgress();
+
+  if ((current.coins || 0) < 100) {
+    return {
+      ok: false,
+      progress: current,
+      message: "You need 100 coins to reveal the full puzzle.",
+    };
+  }
+
+  let next = {
+    ...current,
+    coins: Math.max(0, (current.coins || 0) - 100),
+    totalPuzzlesRevealed: (current.totalPuzzlesRevealed || 0) + 1,
+  };
+
+  next = applyMilestoneBadges(next);
+
+  await saveProgress(next);
+
+  return {
+    ok: true,
+    progress: next,
+    message: "Puzzle revealed.",
+  };
+}
+
+export async function rewardAdCoins(amount = 50) {
+  const current = await loadProgress();
+
+  const next = {
+    ...current,
+    coins: (current.coins || 0) + amount,
+    totalRewardAdsWatched: (current.totalRewardAdsWatched || 0) + 1,
+  };
+
+  await saveProgress(next);
+  return next;
+}
+
+export async function rewardAdWordReveal() {
+  const current = await loadProgress();
+
+  let next = {
+    ...current,
+    totalWordsRevealed: (current.totalWordsRevealed || 0) + 1,
+    totalRewardAdsWatched: (current.totalRewardAdsWatched || 0) + 1,
+  };
+
+  next = applyMilestoneBadges(next);
+
+  await saveProgress(next);
+
+  return {
+    ok: true,
+    progress: next,
+    message: "Word revealed by ad.",
+  };
+}
+
+export async function rewardAdPuzzleReveal() {
+  const current = await loadProgress();
+
+  let next = {
+    ...current,
+    totalPuzzlesRevealed: (current.totalPuzzlesRevealed || 0) + 1,
+    totalRewardAdsWatched: (current.totalRewardAdsWatched || 0) + 1,
+  };
+
+  next = applyMilestoneBadges(next);
+
+  await saveProgress(next);
+
+  return {
+    ok: true,
+    progress: next,
+    message: "Puzzle revealed by ad.",
   };
 }
 

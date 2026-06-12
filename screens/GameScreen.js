@@ -10,7 +10,6 @@ import {
   Linking,
   Platform,
 } from "react-native";
-// import Constants from "expo-constants";
 import {
   RewardedAd,
   RewardedAdEventType,
@@ -19,11 +18,15 @@ import {
 
 import {
   loadProgress,
-  saveProgress,
   rewardCorrectAnswer,
   penalizeWrongAnswer,
   getLevelProgress,
-  spendCoins,
+  spendCoinsForHint,
+  purchaseWordReveal,
+  purchasePuzzleReveal,
+  rewardAdWordReveal,
+  rewardAdPuzzleReveal,
+  rewardAdCoins,
 } from "../utils/gameProgress";
 
 const rewardedAdUnitId =
@@ -117,7 +120,7 @@ export default function GameScreen({ route, navigation }) {
     return null;
   }
 
-  const watchRewardAdForCoins = () => {
+  const runRewardedAd = (onRewardEarned) => {
     if (!rewardedAdUnitId) {
       Alert.alert("Ad unavailable", "Rewarded ads are not configured yet.");
       return;
@@ -140,18 +143,8 @@ export default function GameScreen({ route, navigation }) {
       const unsubscribeEarned = rewarded.addAdEventListener(
         RewardedAdEventType.EARNED_REWARD,
         async () => {
-          const current = await loadProgress();
-
-          const next = {
-            ...current,
-            coins: (current.coins || 0) + 50,
-          };
-
-          await saveProgress(next);
-          setProgressState(next);
+          await onRewardEarned();
           setRewardLoading(false);
-
-          Alert.alert("Reward Earned 🎉", "You received 50 coins.");
         }
       );
 
@@ -166,6 +159,68 @@ export default function GameScreen({ route, navigation }) {
       setRewardLoading(false);
       Alert.alert("Ad unavailable", "Could not load rewarded ad right now.");
     }
+  };
+
+  const watchRewardAdForCoins = () => {
+    runRewardedAd(async () => {
+      const next = await rewardAdCoins(50);
+      setProgressState(next);
+      Alert.alert("Reward Earned 🎉", "You received 50 coins.");
+    });
+  };
+
+  const revealCurrentWordForCoins = async () => {
+    const result = await purchaseWordReveal();
+
+    if (!result.ok) {
+      Alert.alert("Not enough coins", result.message);
+      return;
+    }
+
+    setProgressState(result.progress);
+    setSlots(currentWord.split(""));
+    setFeedback("Word revealed 🔓");
+
+    Alert.alert("Word Revealed", `The answer is: ${currentWord}`);
+  };
+
+  const revealFullPuzzleForCoins = async () => {
+    const result = await purchasePuzzleReveal();
+
+    if (!result.ok) {
+      Alert.alert("Not enough coins", result.message);
+      return;
+    }
+
+    setProgressState(result.progress);
+    setSolvedWords(words.map((w) => w.raw));
+    setCompleted(true);
+    setFeedback("Puzzle revealed 👀");
+
+    Alert.alert("Puzzle Revealed", headline);
+  };
+
+  const watchAdRevealWord = () => {
+    runRewardedAd(async () => {
+      const result = await rewardAdWordReveal();
+      setProgressState(result.progress);
+      setSlots(currentWord.split(""));
+      setFeedback("Word revealed by ad 🎥");
+
+      Alert.alert("Reward Earned", `The answer is: ${currentWord}`);
+    });
+  };
+
+  const watchAdRevealPuzzle = () => {
+    runRewardedAd(async () => {
+      const result = await rewardAdPuzzleReveal();
+      setProgressState(result.progress);
+      setSolvedWords(words.map((w) => w.raw));
+      setCompleted(true);
+      setFeedback("Puzzle revealed by ad 🎥");
+
+      Alert.alert("Reward Earned", "Full headline revealed.");
+    });
   };
 
   const pickTile = (letter, index) => {
@@ -224,7 +279,7 @@ export default function GameScreen({ route, navigation }) {
       return;
     }
 
-    const result = await spendCoins(20);
+    const result = await spendCoinsForHint(20);
 
     if (!result.ok) {
       Alert.alert(
@@ -396,9 +451,29 @@ export default function GameScreen({ route, navigation }) {
               <Text style={styles.hintBtnText}>Use Dictionary Hint (-20 coins)</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity style={styles.powerBtn} onPress={revealCurrentWordForCoins}>
+              <Text style={styles.powerBtnText}>🔓 Reveal Word (-50 Coins)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.powerBtn} onPress={revealFullPuzzleForCoins}>
+              <Text style={styles.powerBtnText}>👀 Reveal Puzzle (-100 Coins)</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.rewardAdBtn} onPress={watchRewardAdForCoins}>
               <Text style={styles.rewardAdBtnText}>
                 {rewardLoading ? "Loading Ad..." : "Watch Ad → Get 50 Coins"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.rewardAdBtn} onPress={watchAdRevealWord}>
+              <Text style={styles.rewardAdBtnText}>
+                {rewardLoading ? "Loading Ad..." : "Watch Ad → Reveal Word"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.rewardAdBtn} onPress={watchAdRevealPuzzle}>
+              <Text style={styles.rewardAdBtnText}>
+                {rewardLoading ? "Loading Ad..." : "Watch Ad → Reveal Puzzle"}
               </Text>
             </TouchableOpacity>
 
@@ -520,6 +595,8 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   hintBtn: { backgroundColor: "#2b3140", paddingVertical: 16, borderRadius: 18, alignItems: "center", marginBottom: 12 },
   hintBtnText: { color: "#dbe2ea", fontSize: 16, fontWeight: "800" },
+  powerBtn: { backgroundColor: "#0ea5e9", paddingVertical: 16, borderRadius: 18, alignItems: "center", marginBottom: 12 },
+  powerBtnText: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
   rewardAdBtn: { backgroundColor: "#7f5af0", paddingVertical: 16, borderRadius: 18, alignItems: "center", marginBottom: 12 },
   rewardAdBtnText: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
   submit: { backgroundColor: "#84cc16", paddingVertical: 18, borderRadius: 20, alignItems: "center" },
