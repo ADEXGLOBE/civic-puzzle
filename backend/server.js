@@ -745,6 +745,12 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl, sp
   const cols = 12;
   const grid = Array.from({ length: rows }, () => Array(cols).fill(null));
   const words = getCandidateWords(text);
+  // Resolve all definitions concurrently so crossword generation stays fast.
+  // buildHintForWord uses the local dictionary/cache first and bounded live
+  // lookups only when necessary.
+  const wordHints = await Promise.all(
+    words.map((word) => buildHintForWord(word, text))
+  );
 
   const slots = [
     { row: 1, col: 1, direction: "across" },
@@ -758,14 +764,16 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl, sp
   const entries = [];
   let num = 1;
 
-  for (const word of words) {
+  for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
+    const word = words[wordIndex];
     const slot = slots.find((s) => !s.used && canPlaceWord(grid, word, s.row, s.col, s.direction));
     if (!slot) continue;
 
     placeWord(grid, word, slot.row, slot.col, slot.direction);
     slot.used = true;
 
-    const hint = buildCachedHintsForText(word)[0];
+    const hint = wordHints[wordIndex];
+    const clue = hint?.meaning || hint?.contextClue || `A ${word.length}-letter word from this news item.`;
 
     entries.push({
       num,
@@ -773,8 +781,15 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl, sp
       col: slot.col,
       direction: slot.direction,
       answer: word,
-      clue: hint?.meaning || fallbackMeaning(word),
-      progressiveHints: hint,
+      clue,
+      progressiveHints: {
+        ...hint,
+        clue,
+        meaning: hint?.meaning || "",
+        contextClue:
+          hint?.contextClue ||
+          "This answer appears in the news item used to build this crossword.",
+      },
     });
 
     num++;

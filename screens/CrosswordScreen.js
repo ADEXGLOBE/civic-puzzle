@@ -77,15 +77,23 @@ export default function CrosswordScreen({ route, navigation }) {
 
   const getSelectedHintText = () => {
     const h = selectedHint?.progressiveHints;
-    if (!h) return null;
+    if (!h) {
+      return selectedHint?.clue || "No hint is available for this answer yet.";
+    }
 
-    if (hintLevel === 1) return `Category: ${h.categoryHint}`;
-    if (hintLevel === 2) return h.contextHint || "Connected to today’s news context";
+    // Lead with the useful, answer-specific help. Category labels such as
+    // "News" are metadata, not clues, and should not consume a hint level.
+    if (hintLevel === 1) {
+      return h.meaning || h.clue || selectedHint?.clue || "No definition is available for this answer.";
+    }
+    if (hintLevel === 2) {
+      return h.contextClue || "This answer appears in the news item used to build this crossword.";
+    }
     if (hintLevel === 3) return `Starts with: ${h.startsWith}`;
     if (hintLevel === 4) return `Length: ${h.answerLength} letters`;
     if (hintLevel >= 5) return `Pattern: ${h.revealPattern || ""}`;
 
-    return "Tap Unlock Hint to reveal help.";
+    return "Unlock Hint 1 for a definition of the selected answer.";
   };
 
   const unlockHint = () => {
@@ -292,7 +300,9 @@ export default function CrosswordScreen({ route, navigation }) {
             <Text style={styles.hintPanelText}>{getSelectedHintText()}</Text>
 
             <TouchableOpacity style={styles.hintUnlockBtn} onPress={unlockHint}>
-              <Text style={styles.hintUnlockText}>Unlock Next Hint</Text>
+              <Text style={styles.hintUnlockText}>
+                {hintLevel === 0 ? "Unlock Definition" : hintLevel >= 5 ? "All Hints Unlocked" : "Unlock Next Hint"}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : null}
