@@ -24,3 +24,4 @@ backend/.env
 # Build outputs
 android/
 ios/
+backend/dictionaryCache.json

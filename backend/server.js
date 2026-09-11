@@ -17,6 +17,11 @@ const CONFIG_FILE = path.join(__dirname, "config.json");
 const DICTIONARY_CACHE_FILE = path.join(__dirname, "dictionaryCache.json");
 
 const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();
+const NEWS_FETCH_TIMEOUT_MS = Number(process.env.NEWS_FETCH_TIMEOUT_MS || 4000);
+const DICTIONARY_FETCH_TIMEOUT_MS = Number(process.env.DICTIONARY_FETCH_TIMEOUT_MS || 3500);
+const SOURCE_CACHE_TTL_MS = 10 * 60 * 1000;
+const GENERATED_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_NEWS_ITEMS = 12;
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -58,7 +63,9 @@ function saveStore() {
 
 function requireAdmin(req) {
   const auth = req.headers["authorization"] || "";
-  if (!ADMIN_TOKEN) return auth === "Bearer puzzleMaster123";
+  if (!ADMIN_TOKEN) {
+    return process.env.NODE_ENV !== "production" && auth === "Bearer puzzleMaster123";
+  }
   return auth === `Bearer ${ADMIN_TOKEN}`;
 }
 
@@ -102,17 +109,36 @@ function getStoredHeadlines() {
 }
 
 const sourceCache = new Map();
+const sourceInFlight = new Map();
+const generatedCache = new Map();
+
+function createTimeoutSignal(timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
 
 async function fetchText(url) {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "CivicPuzzleBot/1.0",
-      Accept: "text/html,application/rss+xml,application/xml,application/json",
-    },
-  });
+  const timeout = createTimeoutSignal(NEWS_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: timeout.signal,
+      headers: {
+        "User-Agent": "CivicPuzzleBot/1.0",
+        Accept: "text/html,application/rss+xml,application/xml,application/json",
+      },
+    });
 
-  if (!res.ok) throw new Error(`Could not fetch URL (${res.status})`);
-  return await res.text();
+    if (!res.ok) throw new Error(`Could not fetch URL (${res.status})`);
+    return await res.text();
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`News source timed out after ${NEWS_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    timeout.clear();
+  }
 }
 
 function parseJsonFeed(text) {
@@ -233,26 +259,43 @@ async function getNewsItemsFromUrl(sourceUrl) {
   if (!url) return [];
 
   const cached = sourceCache.get(url);
-  if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return cached.items;
+  if (cached && Date.now() - cached.ts < SOURCE_CACHE_TTL_MS) return cached.items;
+  if (sourceInFlight.has(url)) return sourceInFlight.get(url);
 
-  const text = await fetchText(url);
+  const request = (async () => {
+    let text;
+    try {
+      text = await fetchText(url);
+    } catch (error) {
+      if (cached?.items?.length) return cached.items;
+      throw error;
+    }
 
-  let items = parseJsonFeed(text);
-  if (items.length === 0) items = parseRssFeed(text);
-  if (items.length === 0) items = parseHtmlNewsPage(text, url);
+    let items = parseJsonFeed(text);
+    if (items.length === 0) items = parseRssFeed(text);
+    if (items.length === 0) items = parseHtmlNewsPage(text, url);
 
-  items = items
-    .filter((item) => item.headline)
-    .map((item) => ({
-      headline: cleanText(item.headline),
-      summary: cleanText(item.summary || ""),
-      readMoreUrl: normalizeUrl(item.readMoreUrl || url),
-      hint: item.hint || makeHintFromHeadline(item.headline),
-    }))
-    .slice(0, 20);
+    items = items
+      .filter((item) => item.headline)
+      .map((item) => ({
+        headline: cleanText(item.headline),
+        summary: cleanText(item.summary || ""),
+        readMoreUrl: normalizeUrl(item.readMoreUrl || url),
+        hint: item.hint || makeHintFromHeadline(item.headline),
+      }))
+      .slice(0, MAX_NEWS_ITEMS);
 
-  sourceCache.set(url, { ts: Date.now(), items });
-  return items;
+    sourceCache.set(url, { ts: Date.now(), items });
+    generatedCache.clear();
+    return items;
+  })();
+
+  sourceInFlight.set(url, request);
+  try {
+    return await request;
+  } finally {
+    sourceInFlight.delete(url);
+  }
 }
 
 // ---------- LOCATION-AWARE NEWS ----------
@@ -304,20 +347,54 @@ function buildGoogleNewsRssUrl(city, radius) {
   return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en&gl=${country.gl}&ceid=${country.ceid}`;
 }
 
+function getStoredNewsItems() {
+  const storedHeadlines = Object.keys(store.weeks || {})
+    .sort()
+    .reverse()
+    .flatMap((week) => store.weeks[week] || [])
+    .filter((item) => cleanText(item?.headline))
+    .map((item) => ({
+      headline: cleanText(item.headline),
+      summary: "",
+      readMoreUrl: normalizeUrl(item.readMoreUrl),
+      hint: cleanText(item.hint) || makeHintFromHeadline(item.headline),
+    }));
+
+  const storedFacts = (store.facts || [])
+    .filter((item) => cleanText(item?.text))
+    .map((item) => ({
+      headline: cleanText(item.text),
+      summary: cleanText(item.text),
+      readMoreUrl: normalizeUrl(item.readMoreUrl),
+      hint: cleanText(item.hint) || makeHintFromHeadline(item.text),
+    }));
+
+  return [...storedHeadlines, ...storedFacts].slice(0, MAX_NEWS_ITEMS);
+}
+
 async function getLocationAwareNews({ city = "Ballarat", radius = "local" } = {}) {
   const sourceUrl = normalizeUrl(appConfig.feedUrl || "");
+  const targetUrl = sourceUrl || buildGoogleNewsRssUrl(city, radius);
+  const cached = sourceCache.get(targetUrl);
 
-  if (sourceUrl) {
-    return await getNewsItemsFromUrl(sourceUrl);
+  if (cached?.items?.length && Date.now() - cached.ts < SOURCE_CACHE_TTL_MS) {
+    return cached.items;
   }
 
-  const locationUrl = buildGoogleNewsRssUrl(city, radius);
-  const items = await getNewsItemsFromUrl(locationUrl);
+  const storedItems = getStoredNewsItems();
+  if (storedItems.length > 0) {
+    getNewsItemsFromUrl(targetUrl).catch((error) => {
+      console.warn("Background news refresh failed:", error.message);
+    });
+    return storedItems;
+  }
 
-  if (items.length > 0) return items;
-
-  const fallbackUrl = buildGoogleNewsRssUrl("Australia", "national");
-  return await getNewsItemsFromUrl(fallbackUrl);
+  try {
+    return await getNewsItemsFromUrl(targetUrl);
+  } catch (error) {
+    console.warn("Live news unavailable and no stored content exists:", error.message);
+    return [];
+  }
 }
 
 // ---------- SPONSOR SYSTEM VERSION 10 ----------
@@ -383,6 +460,23 @@ const STOP_WORDS = new Set([
 
 function fallbackMeaning(word) {
   const local = {
+    A: "Used before a singular noun when referring to one unspecified person or thing.",
+    AN: "Used before a vowel sound when referring to one unspecified person or thing.",
+    AS: "Used to describe a role, comparison, or the way something happens.",
+    AT: "Used to identify a particular place, time, or point.",
+    BE: "To exist or to have a particular state or quality.",
+    BY: "Used to identify who performed an action or what is beside something.",
+    IN: "Used when something is inside a place, period, or situation.",
+    IS: "A form of ‘be’ used for one person or thing in the present.",
+    IT: "Used to refer to a thing, situation, or idea already mentioned.",
+    OF: "Used to show belonging, connection, composition, or amount.",
+    ON: "Used when something touches a surface or happens at a particular time.",
+    TO: "Used to show direction, destination, purpose, or relationship.",
+    AFTER: "Happening later than a particular event, action, or time.",
+    BEFORE: "During an earlier time than a particular event or action.",
+    YEARS: "Periods of twelve months used for measuring time or age.",
+    YEAR: "A period of twelve months.",
+    ISLAMOPHOBIA: "Fear of, hostility toward, or prejudice against Islam or Muslim people.",
     SHIP: "A large boat used for transporting people or goods by sea.",
     BOAT: "A small vessel used for travelling on water.",
     BANK: "A financial institution where people keep or borrow money.",
@@ -412,7 +506,7 @@ function fallbackMeaning(word) {
     JOBS: "Paid positions of regular employment.",
   };
 
-  return local[word] || "A key word connected to today’s news story.";
+  return local[word] || "";
 }
 
 function guessCategory(word, partOfSpeech = "") {
@@ -446,57 +540,102 @@ function buildRevealPattern(word) {
     .join(" ");
 }
 
+async function fetchJsonWithDictionaryTimeout(url) {
+  const timeout = createTimeoutSignal(DICTIONARY_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      signal: timeout.signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  } finally {
+    timeout.clear();
+  }
+}
+
+async function fetchFreeDictionaryMeaning(clean) {
+  const data = await fetchJsonWithDictionaryTimeout(
+    `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(clean)}`
+  );
+  const meanings = data?.[0]?.meanings || [];
+  const selected = meanings.find((meaning) => {
+    const definition = meaning?.definitions?.[0]?.definition || "";
+    return definition && !definition.toLowerCase().includes(clean);
+  }) || meanings[0];
+  const definition = cleanText(selected?.definitions?.[0]?.definition || "");
+  if (!definition) return null;
+  return {
+    definition,
+    partOfSpeech: cleanText(selected?.partOfSpeech || ""),
+    source: "dictionaryapi",
+  };
+}
+
+async function fetchDatamuseMeaning(clean) {
+  const data = await fetchJsonWithDictionaryTimeout(
+    `https://api.datamuse.com/words?sp=${encodeURIComponent(clean)}&md=dp&max=5`
+  );
+  const exact = Array.isArray(data)
+    ? data.find((entry) => String(entry?.word || "").toLowerCase() === clean && entry?.defs?.length)
+    : null;
+  const rawDefinition = exact?.defs?.[0] || "";
+  const separator = rawDefinition.indexOf("\t");
+  const definition = cleanText(separator >= 0 ? rawDefinition.slice(separator + 1) : rawDefinition);
+  if (!definition) return null;
+  return {
+    definition,
+    partOfSpeech: cleanText(separator >= 0 ? rawDefinition.slice(0, separator) : ""),
+    source: "datamuse",
+  };
+}
+
 async function fetchLiveDictionaryMeaning(word) {
   const clean = cleanAnswerWord(word).toLowerCase();
-
   if (!clean || clean.length < 3) return null;
+  if (dictionaryCache[clean]?.definition) return dictionaryCache[clean];
 
-  if (dictionaryCache[clean]) return dictionaryCache[clean];
+  const providers = [fetchFreeDictionaryMeaning(clean), fetchDatamuseMeaning(clean)]
+    .map((request) => request.then((result) => {
+      if (!result) throw new Error("No definition returned");
+      return result;
+    }));
 
   try {
-    const response = await fetch(
-      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(clean)}`
-    );
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    const meanings = data?.[0]?.meanings || [];
-
-    let selectedMeaning = meanings.find((m) => {
-      const definition = m?.definitions?.[0]?.definition || "";
-      return definition && !definition.toLowerCase().includes(clean);
-    });
-
-    if (!selectedMeaning) selectedMeaning = meanings[0];
-
-    const definition = cleanText(selectedMeaning?.definitions?.[0]?.definition || "");
-    const partOfSpeech = cleanText(selectedMeaning?.partOfSpeech || "");
-
-    if (!definition) return null;
-
-    const result = {
-      definition,
-      partOfSpeech,
-      source: "live-dictionary",
-      fetchedAt: Date.now(),
-    };
-
-    dictionaryCache[clean] = result;
+    const result = await Promise.any(providers);
+    const cached = { ...result, fetchedAt: Date.now() };
+    dictionaryCache[clean] = cached;
     saveDictionaryCache();
-
-    return result;
+    return cached;
   } catch {
     return null;
   }
 }
 
-async function buildHintForWord(word) {
+function buildContextClue(word, context = "") {
+  const upper = cleanAnswerWord(word);
+  const words = String(context || "")
+    .split(/\s+/)
+    .map(cleanAnswerWord)
+    .filter(Boolean);
+  const index = words.findIndex((item) => item === upper);
+
+  if (index === -1) return "This answer is one of the words in the current puzzle.";
+
+  const previous = index > 0 ? `“${words[index - 1]}”` : "the beginning of the headline";
+  const next = index < words.length - 1 ? `“${words[index + 1]}”` : "the end of the headline";
+  return `It appears after ${previous} and before ${next}.`;
+}
+
+async function buildHintForWord(word, context = "") {
   const upper = cleanAnswerWord(word);
   if (!upper) return null;
 
-  const live = await fetchLiveDictionaryMeaning(upper);
-  const meaning = live?.definition || fallbackMeaning(upper);
+  const builtInMeaning = fallbackMeaning(upper);
+  const live = builtInMeaning ? null : await fetchLiveDictionaryMeaning(upper);
+  const meaning = live?.definition || builtInMeaning;
   const categoryHint = guessCategory(upper, live?.partOfSpeech || "");
 
   return {
@@ -506,12 +645,13 @@ async function buildHintForWord(word) {
     answerLength: upper.length,
     clue: meaning,
     meaning,
-    contextHint:
-      live?.source === "live-dictionary"
-        ? "Live dictionary meaning of this word."
-        : "Fallback meaning for this news word.",
+    contextHint: meaning
+      ? "Dictionary meaning of the current puzzle word."
+      : "No dictionary definition is currently available.",
+    contextClue: buildContextClue(upper, context),
     revealPattern: buildRevealPattern(upper),
-    source: live?.source || "fallback",
+    source: live?.source || (builtInMeaning ? "built-in-dictionary" : "unavailable"),
+    meaningAvailable: Boolean(meaning),
   };
 }
 
@@ -522,16 +662,45 @@ async function buildProgressiveHintsForText(text) {
     .filter((word) => word && word.length >= 3)
     .filter((word) => !STOP_WORDS.has(word))
     .filter((word, index, arr) => arr.indexOf(word) === index)
-    .slice(0, 8);
+    .slice(0, 6);
 
-  const hints = [];
+  const hints = await Promise.all(words.map((word) => buildHintForWord(word)));
+  return hints.filter(Boolean);
+}
 
-  for (const word of words) {
-    const hint = await buildHintForWord(word);
-    if (hint) hints.push(hint);
-  }
+function buildCachedHintsForText(text) {
+  return String(text || "")
+    .split(/\s+/)
+    .map(cleanAnswerWord)
+    .filter((word) => word && word.length >= 3 && !STOP_WORDS.has(word))
+    .filter((word, index, arr) => arr.indexOf(word) === index)
+    .slice(0, 6)
+    .map((word) => {
+      const live = dictionaryCache[word.toLowerCase()];
+      const meaning = live?.definition || fallbackMeaning(word);
+      return {
+        word,
+        categoryHint: guessCategory(word, live?.partOfSpeech || ""),
+        startsWith: word.slice(0, Math.min(2, word.length)),
+        answerLength: word.length,
+        clue: meaning,
+        meaning,
+        contextHint: live ? "Cached dictionary meaning of this word." : "News word hint.",
+        revealPattern: buildRevealPattern(word),
+        source: live?.source || "fallback",
+      };
+    });
+}
 
-  return hints;
+function readGeneratedCache(key) {
+  const cached = generatedCache.get(key);
+  if (!cached || Date.now() - cached.ts >= GENERATED_CACHE_TTL_MS) return null;
+  return cached.data;
+}
+
+function writeGeneratedCache(key, data) {
+  generatedCache.set(key, { ts: Date.now(), data });
+  return data;
 }
 
 // ---------- CROSSWORD ----------
@@ -596,7 +765,7 @@ async function buildAutoCrossword({ id, title, sourceType, text, readMoreUrl, sp
     placeWord(grid, word, slot.row, slot.col, slot.direction);
     slot.used = true;
 
-    const hint = await buildHintForWord(word);
+    const hint = buildCachedHintsForText(word)[0];
 
     entries.push({
       num,
@@ -673,9 +842,22 @@ app.get("/api/config", (req, res) => {
   });
 });
 
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true, service: "civic-puzzle", timestamp: new Date().toISOString() });
+});
+
 app.get("/api/test-dictionary/:word", async (req, res) => {
   const word = cleanAnswerWord(req.params.word);
-  const hint = await buildHintForWord(word);
+  const hint = await buildHintForWord(word, req.query.context);
+  res.json(hint);
+});
+
+app.get("/api/hints/:word", async (req, res) => {
+  const word = cleanAnswerWord(req.params.word);
+  if (!word) return res.status(400).json({ error: "A valid puzzle word is required." });
+
+  const context = cleanText(req.query.context || "").slice(0, 500);
+  const hint = await buildHintForWord(word, context);
   res.json(hint);
 });
 
@@ -695,6 +877,8 @@ app.post("/api/admin/set-feed-url", (req, res) => {
   appConfig.feedUrl = cleanUrl;
   saveConfig();
   sourceCache.clear();
+  sourceInFlight.clear();
+  generatedCache.clear();
 
   res.json({ ok: true, feedUrl: appConfig.feedUrl });
 });
@@ -704,15 +888,16 @@ app.get("/api/puzzles", async (req, res) => {
     const city = normalizeCity(req.query.city || "Ballarat");
     const radius = normalizeRadius(req.query.radius || "local");
     const locationMode = cleanText(req.query.locationMode || "manual");
+    const cacheKey = `puzzles:${city}:${radius}:${locationMode}`;
+    const cached = readGeneratedCache(cacheKey);
+    if (cached) return res.json(cached);
 
     const items = await getLocationAwareNews({ city, radius });
-    const puzzles = [];
-
-    for (let index = 0; index < items.length; index++) {
-      const h = attachSponsor(items[index], city, index);
+    const puzzles = items.map((rawItem, index) => {
+      const h = attachSponsor(rawItem, city, index);
       const headline = cleanText(h.headline);
 
-      puzzles.push({
+      return {
         puzzle: scrambleSentence(headline),
         answer: headline,
         readMoreUrl: h.readMoreUrl || "",
@@ -721,11 +906,11 @@ app.get("/api/puzzles", async (req, res) => {
         radius,
         locationMode,
         sponsor: h.sponsor || null,
-        progressiveHints: await buildProgressiveHintsForText(headline),
-      });
-    }
+        progressiveHints: buildCachedHintsForText(headline),
+      };
+    });
 
-    res.json(puzzles);
+    res.json(writeGeneratedCache(cacheKey, puzzles));
   } catch (error) {
     console.log("Puzzle generation failed:", error.message);
     res.status(500).json({ error: "Failed to generate local puzzles" });
@@ -736,26 +921,27 @@ app.get("/api/facts", async (req, res) => {
   try {
     const city = normalizeCity(req.query.city || "Ballarat");
     const radius = normalizeRadius(req.query.radius || "local");
+    const cacheKey = `facts:${city}:${radius}`;
+    const cached = readGeneratedCache(cacheKey);
+    if (cached) return res.json(cached);
 
     const items = await getLocationAwareNews({ city, radius });
-    const facts = [];
-
-    for (let index = 0; index < items.length; index++) {
-      const item = attachSponsor(items[index], city, index);
+    const facts = items.map((rawItem, index) => {
+      const item = attachSponsor(rawItem, city, index);
       const text = item.summary || item.headline;
 
-      facts.push({
+      return {
         text,
         city,
         radius,
         readMoreUrl: item.readMoreUrl,
         sponsor: item.sponsor || null,
         hint: `${city} fact challenge #${index + 1}`,
-        progressiveHints: await buildProgressiveHintsForText(text),
-      });
-    }
+        progressiveHints: buildCachedHintsForText(text),
+      };
+    });
 
-    res.json(facts);
+    res.json(writeGeneratedCache(cacheKey, facts));
   } catch (error) {
     console.log("Facts failed:", error.message);
     res.status(500).json({ error: "Failed to load local facts" });
@@ -892,9 +1078,21 @@ app.post("/api/leaderboard", (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(port, () => {
-  console.log(`✅ Civic Puzzle backend running on port ${port}`);
-  console.log("📘 Dictionary hints enabled: true");
-  console.log("📍 Location-aware news enabled: true");
-  console.log("🤝 Sponsored puzzles enabled: true");
-});
+function startServer() {
+  return app.listen(port, () => {
+    console.log(`✅ Civic Puzzle backend running on port ${port}`);
+    console.log("📘 Dictionary hints enabled: true");
+    console.log("📍 Location-aware news enabled: true");
+    console.log("🤝 Sponsored puzzles enabled: true");
+  });
+}
+
+if (require.main === module) startServer();
+
+module.exports = {
+  app,
+  startServer,
+  getLocationAwareNews,
+  buildCachedHintsForText,
+  buildHintForWord,
+};

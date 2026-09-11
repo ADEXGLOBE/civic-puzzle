@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,14 @@ import {
   SafeAreaView,
 } from "react-native";
 import { API_BASE_URL } from "../config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import { loadSettings } from "./SettingsScreen";
 import AdRectangle from "../components/AdRectangle";
+import { getBundledFallback } from "../data/fallbackChallenges";
 
-const REQUEST_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = 8000;
+const CACHE_PREFIX = "civic-puzzle:challenge-cache:v1";
 
 async function fetchWithTimeout(url) {
   const controller = new AbortController();
@@ -48,8 +52,7 @@ export default function LevelSelector({ navigation }) {
   ];
 
   const fetchData = async (whichMode) => {
-    setLoading(true);
-
+    let hasCachedData = false;
     try {
       const s = await loadSettings();
 
@@ -65,12 +68,29 @@ export default function LevelSelector({ navigation }) {
       qs.set("city", selectedCity);
       qs.set("radius", selectedRadius);
       qs.set("locationMode", selectedLocationMode);
+      const cacheKey = `${CACHE_PREFIX}:${whichMode}:${selectedCity}:${selectedRadius}`;
+      const cachedRaw = await AsyncStorage.getItem(cacheKey);
+      const cachedItems = cachedRaw ? JSON.parse(cachedRaw) : [];
+      const bundledItems = getBundledFallback(whichMode);
+
+      if (Array.isArray(cachedItems) && cachedItems.length > 0) {
+        hasCachedData = true;
+        setItems(cachedItems);
+        setLoading(false);
+      } else if (bundledItems.length > 0) {
+        hasCachedData = true;
+        setItems(bundledItems);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
 
       if (whichMode === "crossword") {
         const data = await fetchWithTimeout(
           `${API_BASE_URL}/api/crosswords?${qs.toString()}`
         );
         setItems(data);
+        if (data.length > 0) await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
         return;
       }
 
@@ -81,20 +101,25 @@ export default function LevelSelector({ navigation }) {
       );
 
       setItems(data);
+      if (data.length > 0) await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
     } catch (e) {
       console.log("LevelSelector fetch error:", e);
-      Alert.alert("Error", "Could not load local puzzles. Check API URL + server.");
-      setItems([]);
+      if (!hasCachedData) {
+        Alert.alert(
+          "Content temporarily unavailable",
+          "Civic Puzzle could not refresh the news feed. Please try again shortly."
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => fetchData(mode));
-    fetchData(mode);
-    return unsubscribe;
-  }, [mode, navigation]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchData(mode);
+    }, [mode])
+  );
 
   const openChallenge = (item) => {
     if (mode === "crossword") {

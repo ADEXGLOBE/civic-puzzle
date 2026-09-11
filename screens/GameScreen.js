@@ -10,12 +10,8 @@ import {
   Linking,
   Platform,
 } from "react-native";
-import {
-  RewardedAd,
-  RewardedAdEventType,
-  TestIds,
-} from "react-native-google-mobile-ads";
-
+import { API_BASE_URL } from "../config";
+import { getMobileAds } from "../utils/mobileAds";
 import {
   loadProgress,
   rewardCorrectAnswer,
@@ -29,12 +25,16 @@ import {
   rewardAdCoins,
 } from "../utils/gameProgress";
 
-const rewardedAdUnitId =
-  __DEV__
-    ? TestIds.REWARDED
+const mobileAds = getMobileAds();
+const RewardedAd = mobileAds?.RewardedAd;
+const RewardedAdEventType = mobileAds?.RewardedAdEventType;
+const rewardedAdUnitId = mobileAds
+  ? __DEV__
+    ? mobileAds.TestIds.REWARDED
     : Platform.OS === "android"
     ? "ca-app-pub-9113372641628364/7864252572"
-    : TestIds.REWARDED;
+    : "ca-app-pub-3940256099942544/1712485313"
+  : null;
 
 export default function GameScreen({ route, navigation }) {
   const { puzzleData } = route.params || {};
@@ -62,6 +62,8 @@ export default function GameScreen({ route, navigation }) {
   const [completed, setCompleted] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [hintLevel, setHintLevel] = useState(0);
+  const [liveHints, setLiveHints] = useState({});
+  const [hintLoading, setHintLoading] = useState(false);
   const [rewardLoading, setRewardLoading] = useState(false);
 
   const [progressState, setProgressState] = useState({
@@ -101,8 +103,8 @@ export default function GameScreen({ route, navigation }) {
     const hints = puzzleData?.progressiveHints || [];
 
     const currentHint =
-      hints.find((h) => h?.word?.toUpperCase() === currentWord?.toUpperCase()) ||
-      hints[currentIndex];
+      liveHints[currentWord] ||
+      hints.find((h) => cleanWord(h?.word).toUpperCase() === currentWord);
 
     if (!currentHint) return null;
 
@@ -111,8 +113,8 @@ export default function GameScreen({ route, navigation }) {
       currentHint.clue ||
       "No dictionary meaning available for this word.";
 
-    if (hintLevel === 1) return `Meaning: ${meaning}`;
-    if (hintLevel === 2) return `Category: ${currentHint.categoryHint || "News"}`;
+    if (hintLevel === 1) return `Clue: ${meaning}`;
+    if (hintLevel === 2) return `Headline context: ${currentHint.contextClue || currentHint.contextHint || "This word is part of the current headline."}`;
     if (hintLevel === 3) return `Starts with: ${currentHint.startsWith || currentWord.slice(0, 2)}`;
     if (hintLevel === 4) return `Length: ${currentHint.answerLength || currentWord.length} letters`;
     if (hintLevel >= 5) return `Pattern: ${currentHint.revealPattern || buildLocalPattern(currentWord)}`;
@@ -121,8 +123,8 @@ export default function GameScreen({ route, navigation }) {
   }
 
   const runRewardedAd = (onRewardEarned) => {
-    if (!rewardedAdUnitId) {
-      Alert.alert("Ad unavailable", "Rewarded ads are not configured yet.");
+    if (!RewardedAd || !RewardedAdEventType || !rewardedAdUnitId) {
+      Alert.alert("Ad unavailable", "Rewarded ads require the installed Civic Puzzle app.");
       return;
     }
 
@@ -277,6 +279,24 @@ export default function GameScreen({ route, navigation }) {
     if (hintLevel >= 5) {
       Alert.alert("All hints used", "You have already unlocked all hints for this word.");
       return;
+    }
+
+    let hint = liveHints[currentWord];
+
+    if (!hint) {
+      setHintLoading(true);
+      try {
+        hint = await fetchLiveHint(currentWord, headline);
+        setLiveHints((existing) => ({ ...existing, [currentWord]: hint }));
+      } catch (error) {
+        Alert.alert(
+          "Dictionary hint unavailable",
+          "A meaningful definition could not be retrieved. Your coins have not been charged. Please try again."
+        );
+        return;
+      } finally {
+        setHintLoading(false);
+      }
     }
 
     const result = await spendCoinsForHint(20);
@@ -447,8 +467,14 @@ export default function GameScreen({ route, navigation }) {
               <TouchableOpacity style={styles.btn} onPress={shuffleTiles}><Text style={styles.btnText}>Shuffle</Text></TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.hintBtn} onPress={useHint}>
-              <Text style={styles.hintBtnText}>Use Dictionary Hint (-20 coins)</Text>
+            <TouchableOpacity
+              style={[styles.hintBtn, hintLoading && styles.hintBtnDisabled]}
+              onPress={useHint}
+              disabled={hintLoading}
+            >
+              <Text style={styles.hintBtnText}>
+                {hintLoading ? "Getting hint for this word..." : "Get Live Hint (-20 coins)"}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.powerBtn} onPress={revealCurrentWordForCoins}>
@@ -523,7 +549,26 @@ export default function GameScreen({ route, navigation }) {
 }
 
 function cleanWord(w) {
-  return String(w || "").replace(/[^a-zA-Z0-9]/g, "");
+  return String(w || "").replace(/[^a-zA-Z]/g, "");
+}
+
+async function fetchLiveHint(word, context) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const url = `${API_BASE_URL}/api/hints/${encodeURIComponent(word)}?context=${encodeURIComponent(context)}`;
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Hint request failed: ${response.status}`);
+
+    const hint = await response.json();
+    if (!hint?.word || hint?.meaningAvailable === false || (!hint?.meaning && !hint?.clue)) {
+      throw new Error("The hint response was incomplete");
+    }
+    return hint;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function shuffle(arr) {
@@ -594,6 +639,7 @@ const styles = StyleSheet.create({
   btn: { flex: 1, backgroundColor: "#1f2937", paddingVertical: 15, borderRadius: 16, alignItems: "center" },
   btnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   hintBtn: { backgroundColor: "#2b3140", paddingVertical: 16, borderRadius: 18, alignItems: "center", marginBottom: 12 },
+  hintBtnDisabled: { opacity: 0.65 },
   hintBtnText: { color: "#dbe2ea", fontSize: 16, fontWeight: "800" },
   powerBtn: { backgroundColor: "#0ea5e9", paddingVertical: 16, borderRadius: 18, alignItems: "center", marginBottom: 12 },
   powerBtnText: { color: "#ffffff", fontSize: 16, fontWeight: "900" },

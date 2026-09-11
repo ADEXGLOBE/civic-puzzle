@@ -1,78 +1,55 @@
 import React from "react";
-import { View, Text, StyleSheet, Platform } from "react-native";
-import { BannerAd, BannerAdSize, TestIds } from "react-native-google-mobile-ads";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import Constants from "expo-constants";
+import { getMobileAds } from "../utils/mobileAds";
 
-const adUnitId =
-  __DEV__
-    ? TestIds.BANNER
-    : Platform.OS === "android"
-    ? Constants.expoConfig?.extra?.admob?.androidBannerId
-    : Constants.expoConfig?.extra?.admob?.iosBannerId;
+const mobileAds = getMobileAds();
 
 export default function AdRectangle() {
-  try {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.label}>Sponsored</Text>
+  if (mobileAds) {
+    const { BannerAd, BannerAdSize, TestIds } = mobileAds;
+    const unitId = __DEV__
+      ? TestIds.BANNER
+      : Platform.OS === "android"
+      ? Constants.expoConfig?.extra?.admob?.androidBannerId
+      : Constants.expoConfig?.extra?.admob?.iosBannerId;
 
-        <BannerAd
-          unitId={adUnitId}
-          size={BannerAdSize.MEDIUM_RECTANGLE}
-          requestOptions={{
-            requestNonPersonalizedAdsOnly: true,
-          }}
-        />
-      </View>
-    );
-  } catch (err) {
-    return (
-      <View style={styles.card}>
-        <Text style={styles.label}>Sponsored</Text>
-        <Text style={styles.title}>Ad Space</Text>
-        <Text style={styles.sub}>
-          AdMob unavailable. Showing fallback sponsor area.
-        </Text>
-      </View>
-    );
+    if (unitId) {
+      return (
+        <View style={styles.container}>
+          <Text style={styles.label}>Sponsored</Text>
+          <BannerAd
+            unitId={unitId}
+            size={BannerAdSize.MEDIUM_RECTANGLE}
+            requestOptions={{ requestNonPersonalizedAdsOnly: true }}
+          />
+        </View>
+      );
+    }
   }
+
+  return (
+    <View style={styles.fallback}>
+      <Text style={styles.label}>Sponsored</Text>
+      <Text style={styles.title}>LAXA Technology</Text>
+      <Text style={styles.subtitle}>Civic technology that turns news into participation.</Text>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    alignItems: "center",
-    marginVertical: 12,
-  },
-
-  card: {
-    minHeight: 120,
-    borderRadius: 24,
+  container: { alignItems: "center", marginVertical: 12 },
+  fallback: {
+    minHeight: 110,
+    borderRadius: 20,
     backgroundColor: "rgba(10,18,30,0.9)",
     borderWidth: 1,
     borderColor: "rgba(184,242,123,0.18)",
     padding: 18,
     justifyContent: "center",
-    marginVertical: 14,
+    marginVertical: 12,
   },
-
-  label: {
-    color: "#a8eb63",
-    fontSize: 13,
-    fontWeight: "900",
-    marginBottom: 8,
-    textTransform: "uppercase",
-  },
-
-  title: {
-    color: "#fff",
-    fontSize: 24,
-    fontWeight: "900",
-    marginBottom: 4,
-  },
-
-  sub: {
-    color: "#b5c3d6",
-    fontSize: 14,
-    lineHeight: 20,
-  },
+  label: { color: "#a8eb63", fontSize: 12, fontWeight: "900", marginBottom: 7 },
+  title: { color: "#fff", fontSize: 20, fontWeight: "900", marginBottom: 4 },
+  subtitle: { color: "#b5c3d6", fontSize: 14, lineHeight: 20 },
 });
